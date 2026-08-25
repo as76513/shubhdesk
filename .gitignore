@@ -2,6 +2,9 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
 
 # Amplify Gen 2
 .amplify/
