@@ -107,6 +107,7 @@ export async function createLead(input: {
   const clientCode = await nextClientCode();
   const { data, errors } = await client.models.Lead.create({
     ...input,
+    email: input.email?.trim() || undefined,
     clientCode,
     stage: 'new',
     owner: me.username,
