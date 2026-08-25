@@ -1,0 +1,21 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Amplify Gen 2
+.amplify/
+amplify_outputs*
+amplifyconfiguration*
+
+# Env / secrets
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+*.log
+npm-debug.log*
