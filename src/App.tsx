@@ -132,7 +132,7 @@ export default function App() {
     try {
       await apiMoveStage(lead, newStage, rmUsername);
       await refresh();
-      setSelected((s) => (s && s.id === lead.id ? { ...s, stage: newStage, owner: rmUsername ?? s.owner } : s));
+      setSelected((s) => (s && s.id === lead.id ? { ...s, stage: newStage as Lead["stage"], owner: rmUsername ?? s.owner } : s));
     } catch {
       setError("Couldn't update the stage. Please try again.");
     }
