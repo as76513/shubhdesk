@@ -13,6 +13,7 @@ import {
   friendlyError,
   type Role,
 } from "./leadClient";
+import { buildEmployeeReport, reportToCSV, downloadCSV, type ReportPeriod } from "./report";
 import type { Schema } from "../amplify/data/resource";
 
 // ============================================================
@@ -208,6 +209,7 @@ export default function App() {
               <option>All</option>
               {SERVICES.map((s) => <option key={s}>{s}</option>)}
             </select>
+            {me?.role === "admin" && <ReportButton leads={visibleLeads} staff={staff} />}
             <NewLeadButton onCreate={handleCreate} />
           </div>
         </div>
@@ -545,6 +547,44 @@ function Field({ label, required, children }: { label: string; required?: boolea
       </label>
       {children}
     </div>
+  );
+}
+
+function ReportButton({ leads, staff }: { leads: Lead[]; staff: Staff[] }) {
+  const [open, setOpen] = useState(false);
+  const [period, setPeriod] = useState<ReportPeriod>("thisMonth");
+
+  function download() {
+    const { rows, range } = buildEmployeeReport(leads, staff, period);
+    const csv = reportToCSV(rows);
+    const filename = `shubhdesk-report-${range.label.replace(/\s+/g, "-").toLowerCase()}_${range.start}_to_${range.end}.csv`;
+    downloadCSV(filename, csv);
+    setOpen(false);
+  }
+
+  return (
+    <>
+      <button className="ghost" onClick={() => setOpen(true)}>⬇ Report</button>
+      {open && (
+        <div style={S.overlay} onClick={() => setOpen(false)}>
+          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={S.drawerName}>Download Employee Report</div>
+            <div style={S.hint}>A CSV summary of each employee's leads sourced, deals closed, handoffs, and current pipeline.</div>
+            <Field label="Period">
+              <select className="sel" value={period} onChange={(e) => setPeriod(e.target.value as ReportPeriod)} style={{ width: "100%" }}>
+                <option value="thisWeek">This Week</option>
+                <option value="thisMonth">This Month</option>
+                <option value="lastMonth">Last Month</option>
+              </select>
+            </Field>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button className="primary" onClick={download} style={{ flex: 1 }}>Download CSV</button>
+              <button className="ghost" onClick={() => setOpen(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
