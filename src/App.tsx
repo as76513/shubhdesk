@@ -10,6 +10,7 @@ import {
   addNote as apiAddNote,
   setFollowUp as apiSetFollowUp,
   listNotes,
+  friendlyError,
   type Role,
 } from "./leadClient";
 import type { Schema } from "../amplify/data/resource";
@@ -67,7 +68,7 @@ export default function App() {
       const [ls] = await Promise.all([listLeads()]);
       setLeads(ls);
     } catch (e) {
-      setError("Couldn't load leads. Check your connection and try again.");
+      setError(friendlyError(e, "Couldn't load leads. Check your connection and try again."));
     }
   }, []);
 
@@ -87,7 +88,7 @@ export default function App() {
         setStaff(st);
         setRms(rmList);
       } catch (e) {
-        setError("Couldn't start ShubhDesk. Please refresh.");
+        setError(friendlyError(e, "Couldn't start ShubhDesk. Please refresh."));
       } finally {
         setLoading(false);
       }
@@ -133,16 +134,16 @@ export default function App() {
       await apiMoveStage(lead, newStage, rmUsername);
       await refresh();
       setSelected((s) => (s && s.id === lead.id ? { ...s, stage: newStage as Lead["stage"], owner: rmUsername ?? s.owner } : s));
-    } catch {
-      setError("Couldn't update the stage. Please try again.");
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't update the stage. Please try again."));
     }
   }
   async function handleNote(leadId: string, text: string) {
     if (!text.trim()) return;
     try {
       await apiAddNote(leadId, text, "note");
-    } catch {
-      setError("Couldn't save your note.");
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't save your note. Please try again."));
     }
   }
   async function handleFollowUp(leadId: string, date: string) {
@@ -150,16 +151,18 @@ export default function App() {
       await apiSetFollowUp(leadId, date || null);
       await refresh();
       setSelected((s) => (s && s.id === leadId ? { ...s, followUpOn: date } : s));
-    } catch {
-      setError("Couldn't set the follow-up date.");
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't set the follow-up date. Please try again."));
     }
   }
-  async function handleCreate(input: any) {
+  async function handleCreate(input: any): Promise<boolean> {
     try {
       await apiCreateLead(input);
       await refresh();
-    } catch {
-      setError("Couldn't create the lead.");
+      return true;
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't create the lead. Please check the details and try again."));
+      return false;
     }
   }
 
@@ -183,7 +186,8 @@ export default function App() {
       <div style={S.body}>
         {error && (
           <div style={S.errorBar}>
-            {error} <button className="linkbtn" onClick={refresh}>Retry</button>
+            <span style={{ whiteSpace: "pre-line" }}>{error}</span>{" "}
+            <button className="linkbtn" onClick={refresh}>Retry</button>
           </div>
         )}
 
@@ -531,18 +535,40 @@ function LeadDrawer({
   );
 }
 
-function NewLeadButton({ onCreate }: { onCreate: (input: any) => void }) {
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div style={S.mInput}>
+      <label style={S.formLabel}>
+        {label} {required && <span style={S.req}>*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function NewLeadButton({ onCreate }: { onCreate: (input: any) => Promise<boolean> }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [form, setForm] = useState({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "" });
 
   async function submit() {
-    if (!form.client.trim()) return;
+    const client = form.client.trim();
+    const email = form.email.trim();
+    if (!client) { setFormError("Client name is required."); return; }
+    if (!email) { setFormError("Email is required."); return; }
+    if (!EMAIL_RE.test(email)) { setFormError("Please enter a valid email address (e.g. name@example.com)."); return; }
+
+    setFormError(null);
     setSaving(true);
-    await onCreate({ ...form, value: Number(form.value) || 0 });
+    const ok = await onCreate({ ...form, client, email, value: Number(form.value) || 0 });
     setSaving(false);
-    setForm({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "" });
-    setOpen(false);
+    if (ok) {
+      setForm({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "" });
+      setOpen(false);
+    }
   }
 
   return (
@@ -552,15 +578,28 @@ function NewLeadButton({ onCreate }: { onCreate: (input: any) => void }) {
         <div style={S.overlay} onClick={() => setOpen(false)}>
           <div style={S.modal} onClick={(e) => e.stopPropagation()}>
             <div style={S.drawerName}>New Lead</div>
-            <div style={S.hint}>A client code (SSKH-YYMM-NNN) is assigned automatically.</div>
-            <input className="ninput" placeholder="Client name" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} style={S.mInput} />
-            <input className="ninput" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={S.mInput} />
-            <input className="ninput" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={S.mInput} />
-            <textarea className="ninput" placeholder="Requirements / what the client wants" value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} style={{ ...S.mInput, minHeight: 60, resize: "vertical", fontFamily: "inherit" }} />
-            <select className="sel" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} style={S.mInput}>
-              {SERVICES.map((s) => <option key={s}>{s}</option>)}
-            </select>
-            <input className="ninput" placeholder="Estimated value (₹)" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} style={S.mInput} />
+            <div style={S.hint}>A client code (SSKH-YYMM-NNN) is assigned automatically. Fields marked <span style={S.req}>*</span> are required.</div>
+            <Field label="Client name" required>
+              <input className="ninput" placeholder="e.g. Rohan Mehta" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
+            </Field>
+            <Field label="Phone">
+              <input className="ninput" placeholder="e.g. 9876543210" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            </Field>
+            <Field label="Email" required>
+              <input className="ninput" placeholder="e.g. name@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </Field>
+            <Field label="Requirements">
+              <textarea className="ninput" placeholder="What the client wants" value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} style={{ minHeight: 60, resize: "vertical", fontFamily: "inherit" }} />
+            </Field>
+            <Field label="Service">
+              <select className="sel" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} style={{ width: "100%" }}>
+                {SERVICES.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Estimated value (₹)">
+              <input className="ninput" placeholder="e.g. 50000" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} />
+            </Field>
+            {formError && <div style={S.formError}>{formError}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button className="primary" onClick={submit} disabled={saving} style={{ flex: 1, opacity: saving ? 0.6 : 1 }}>
                 {saving ? "Creating…" : "Create Lead"}
@@ -637,6 +676,9 @@ const S: Record<string, React.CSSProperties> = {
   noteInput: { display: "flex", gap: 8 },
   modal: { background: "#fff", borderRadius: 14, padding: 20, width: "90%", maxWidth: 380, margin: "auto", display: "flex", flexDirection: "column", gap: 4 },
   mInput: { marginTop: 8 },
+  formLabel: { fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4, display: "block" },
+  req: { color: "#DC2626" },
+  formError: { fontSize: 12, color: "#991B1B", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, padding: "8px 10px", marginTop: 10 },
 };
 
 const CSS = `

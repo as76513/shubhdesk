@@ -28,7 +28,7 @@ const schema = a.schema({
       clientCode: a.string(),        // human reference, e.g. SSKH-2608-042
       client: a.string().required(), // client name
       phone: a.string(),
-      email: a.email(),
+      email: a.email().required(),
       requirements: a.string(),      // what the client wants (demands/notes)
 
       // --- Pipeline ---

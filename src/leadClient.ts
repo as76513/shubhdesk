@@ -98,7 +98,7 @@ async function nextClientCode(): Promise<string> {
 export async function createLead(input: {
   client: string;
   phone?: string;
-  email?: string;
+  email: string;
   requirements?: string;
   service: 'Trading' | 'SIP' | 'Insurance' | 'Loans';
   value?: number;
@@ -107,7 +107,7 @@ export async function createLead(input: {
   const clientCode = await nextClientCode();
   const { data, errors } = await client.models.Lead.create({
     ...input,
-    email: input.email?.trim() || undefined,
+    email: input.email.trim(),
     clientCode,
     stage: 'new',
     owner: me.username,
@@ -201,4 +201,36 @@ export async function listNotes(leadId: string) {
   return data.sort(
     (a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
   );
+}
+
+function extractErrorMessage(e: unknown): string | null {
+  if (!e) return null;
+  if (Array.isArray(e)) {
+    const msg = e.map((x: any) => x?.message).filter(Boolean).join('; ');
+    return msg || null;
+  }
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'object' && e !== null && 'message' in e) return String((e as any).message);
+  return String(e);
+}
+
+/**
+ * Turn a raw error (GraphQL error array, Error, or unknown) into a message
+ * a non-technical staff member can read and act on, with the original
+ * technical detail kept alongside so it can be shared with support.
+ */
+export function friendlyError(e: unknown, fallback: string): string {
+  const raw = extractErrorMessage(e);
+  if (!raw) return fallback;
+
+  const lower = raw.toLowerCase();
+  let friendly = fallback;
+  if (lower.includes('invalid value') || lower.includes('validation')) {
+    friendly = "Some of the details entered aren't valid. Please check the form and try again.";
+  } else if (lower.includes('not authorized') || lower.includes('unauthorized')) {
+    friendly = "You don't have permission to do this. Ask an admin for access.";
+  } else if (lower.includes('network') || lower.includes('failed to fetch')) {
+    friendly = "Couldn't reach the server. Check your internet connection and try again.";
+  }
+  return `${friendly}\n(For support: ${raw})`;
 }
