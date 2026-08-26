@@ -16,7 +16,7 @@ const client = generateClient<Schema>();
 // Stages owned by sales, mirroring the STAGES constant in App.tsx.
 const SALES_STAGES = ['new'];
 
-export type Role = 'admin' | 'rm' | 'sales';
+export type Role = 'admin' | 'rm' | 'sales' | 'dealer';
 
 /** The signed-in user's id, display name, and role (from Cognito group). */
 export async function getMe(): Promise<{
@@ -32,6 +32,8 @@ export async function getMe(): Promise<{
     ? 'admin'
     : groups.includes('rm')
     ? 'rm'
+    : groups.includes('dealer')
+    ? 'dealer'
     : 'sales';
 
   let displayName = user.username;

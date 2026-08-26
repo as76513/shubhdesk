@@ -26,6 +26,12 @@ import {
   type Role,
 } from "./leadClient";
 import { buildEmployeeReport, reportToCSV, downloadCSV, type ReportPeriod } from "./report";
+import {
+  listTrades,
+  createTrade as apiCreateTrade,
+  updateTrade as apiUpdateTrade,
+  deleteTrade as apiDeleteTrade,
+} from "./tradeClient";
 import type { Schema } from "../amplify/data/resource";
 
 // ============================================================
@@ -37,6 +43,7 @@ import type { Schema } from "../amplify/data/resource";
 type Lead = Schema["Lead"]["type"];
 type Note = Schema["Note"]["type"];
 type Staff = Schema["StaffProfile"]["type"];
+type Trade = Schema["Trade"]["type"];
 
 const STAGES = [
   { id: "new", label: "New Lead", color: "#6B7280" },
@@ -78,10 +85,11 @@ export default function App() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [rms, setRms] = useState<Staff[]>([]);
+  const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [view, setView] = useState<"board" | "list" | "followups">("board");
+  const [view, setView] = useState<"board" | "list" | "followups" | "trades">("board");
   const [selected, setSelected] = useState<Lead | null>(null);
   const [filterService, setFilterService] = useState("All");
   const [handoffPrompt, setHandoffPrompt] = useState<{ lead: Lead; targetStage: string } | null>(null);
@@ -104,21 +112,35 @@ export default function App() {
     }
   }, []);
 
-  // Initial load.
+  const refreshTrades = useCallback(async () => {
+    setError(null);
+    try {
+      setTrades(await listTrades());
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't load trades. Check your connection and try again."));
+    }
+  }, []);
+
+  // Initial load. Dealers only ever need Trade data — no point loading
+  // the entire lead pipeline for a role that can't see it. Admins get
+  // both, since they get a Trades tab alongside the pipeline.
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [meInfo, ls, st, rmList] = await Promise.all([
-          getMe(),
-          listLeads(),
-          listStaff(),
-          listRMs(),
-        ]);
+        const meInfo = await getMe();
         setMe(meInfo);
-        setLeads(ls);
-        setStaff(st);
-        setRms(rmList);
+        if (meInfo.role === "dealer") {
+          setTrades(await listTrades());
+        } else {
+          const [ls, st, rmList] = await Promise.all([listLeads(), listStaff(), listRMs()]);
+          setLeads(ls);
+          setStaff(st);
+          setRms(rmList);
+          if (meInfo.role === "admin") {
+            setTrades(await listTrades());
+          }
+        }
       } catch (e) {
         setError(friendlyError(e, "Couldn't start ShubhDesk. Please refresh."));
       } finally {
@@ -228,6 +250,35 @@ export default function App() {
     }
   }
 
+  async function handleCreateTrade(input: { clientName: string; buyingLot?: string; brokerage?: number }): Promise<boolean> {
+    try {
+      await apiCreateTrade(input);
+      await refreshTrades();
+      return true;
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't save the trade. Please check the details and try again."));
+      return false;
+    }
+  }
+  async function handleUpdateTrade(input: { id: string; clientName: string; buyingLot?: string; brokerage?: number }): Promise<boolean> {
+    try {
+      await apiUpdateTrade(input);
+      await refreshTrades();
+      return true;
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't save the trade. Please check the details and try again."));
+      return false;
+    }
+  }
+  async function handleDeleteTrade(id: string) {
+    try {
+      await apiDeleteTrade(id);
+      await refreshTrades();
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't delete the trade. Please try again."));
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
@@ -236,6 +287,31 @@ export default function App() {
           <img src={LOGO} alt="ShubhShree" style={{ height: 56, marginBottom: 20, borderRadius: 10 }} />
           <div className="spinner" />
           <div style={{ fontSize: 13, fontWeight: 500, color: "#4B5563" }}>Loading ShubhDesk…</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Dealer is a standalone role — it never sees the Lead pipeline at
+  // all, just its own minimal trade log.
+  if (me?.role === "dealer") {
+    return (
+      <div style={S.app}>
+        <style>{CSS}</style>
+        <Header me={me} />
+        <div style={S.body}>
+          {error && (
+            <div style={S.errorBar}>
+              <span style={{ whiteSpace: "pre-line" }}>{error}</span>{" "}
+              <button className="linkbtn" onClick={refreshTrades}>Retry</button>
+            </div>
+          )}
+          <TradesView
+            trades={trades}
+            onCreate={handleCreateTrade}
+            onUpdate={handleUpdateTrade}
+            onDelete={handleDeleteTrade}
+          />
         </div>
       </div>
     );
@@ -265,14 +341,19 @@ export default function App() {
                 Follow-ups Due{dueLeads.length > 0 ? ` (${dueLeads.length})` : ""}
               </button>
             )}
+            {me?.role === "admin" && (
+              <button className={view === "trades" ? "tab active" : "tab"} onClick={() => setView("trades")}>Trades</button>
+            )}
           </div>
           <div style={S.filters}>
-            <select value={filterService} onChange={(e) => setFilterService(e.target.value)} className="sel">
-              <option>All</option>
-              {SERVICES.map((s) => <option key={s}>{s}</option>)}
-            </select>
-            {me?.role === "admin" && <ReportButton leads={visibleLeads} staff={staff} />}
-            <NewLeadButton onCreate={handleCreate} />
+            {view !== "trades" && (
+              <select value={filterService} onChange={(e) => setFilterService(e.target.value)} className="sel">
+                <option>All</option>
+                {SERVICES.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            )}
+            {me?.role === "admin" && view !== "trades" && <ReportButton leads={visibleLeads} staff={staff} />}
+            {view !== "trades" && <NewLeadButton onCreate={handleCreate} />}
           </div>
         </div>
 
@@ -280,6 +361,13 @@ export default function App() {
           <Board leads={visibleLeads} onOpen={setSelected} nameOf={nameOf} onMove={requestMove} canEdit={canEdit} />
         ) : view === "followups" ? (
           <FollowUpView leads={dueLeads} onOpen={setSelected} />
+        ) : view === "trades" ? (
+          <TradesView
+            trades={trades}
+            onCreate={handleCreateTrade}
+            onUpdate={handleUpdateTrade}
+            onDelete={handleDeleteTrade}
+          />
         ) : (
           <ListView leads={visibleLeads} onOpen={setSelected} />
         )}
@@ -711,6 +799,100 @@ function Field({ label, required, children }: { label: string; required?: boolea
         {label} {required && <span style={S.req}>*</span>}
       </label>
       {children}
+    </div>
+  );
+}
+
+function TradesView({ trades, onCreate, onUpdate, onDelete }: {
+  trades: Trade[];
+  onCreate: (input: { clientName: string; buyingLot?: string; brokerage?: number }) => Promise<boolean>;
+  onUpdate: (input: { id: string; clientName: string; buyingLot?: string; brokerage?: number }) => Promise<boolean>;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState<Trade | "new" | null>(null);
+
+  async function handleSave(input: { clientName: string; buyingLot?: string; brokerage?: number }) {
+    const ok = editing === "new" ? await onCreate(input) : await onUpdate({ id: (editing as Trade).id, ...input });
+    if (ok) setEditing(null);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <button className="primary" onClick={() => setEditing("new")}>+ New Trade</button>
+      </div>
+      <div style={S.list}>
+        <div style={{ ...S.listRow, cursor: "default" }}>
+          <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Client Name</div>
+          <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Buying Lot</div>
+          <div style={{ flex: 1, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Brokerage</div>
+          <div style={{ width: 66 }} />
+        </div>
+        {trades.map((t) => (
+          <div key={t.id} className="row" style={S.listRow}>
+            <div style={{ flex: 2, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{t.clientName}</div>
+            <div style={{ flex: 2, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{t.buyingLot || "—"}</div>
+            <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</div>
+            <div style={{ width: 66, textAlign: "right" }}>
+              <button className="ghost sm" onClick={() => onDelete(t.id)}>Delete</button>
+            </div>
+          </div>
+        ))}
+        {trades.length === 0 && <div style={S.empty}>No trades yet. Click "+ New Trade" to log one.</div>}
+      </div>
+
+      {editing && (
+        <TradeModal
+          trade={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSave={handleSave}
+        />
+      )}
+    </div>
+  );
+}
+
+function TradeModal({ trade, onClose, onSave }: {
+  trade: Trade | null;
+  onClose: () => void;
+  onSave: (input: { clientName: string; buyingLot?: string; brokerage?: number }) => Promise<void>;
+}) {
+  const [clientName, setClientName] = useState(trade?.clientName ?? "");
+  const [buyingLot, setBuyingLot] = useState(trade?.buyingLot ?? "");
+  const [brokerage, setBrokerage] = useState(trade?.brokerage != null ? String(trade.brokerage) : "");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    const name = clientName.trim();
+    if (!name) { setFormError("Client name is required."); return; }
+    setFormError(null);
+    setSaving(true);
+    await onSave({ clientName: name, buyingLot: buyingLot.trim() || undefined, brokerage: Number(brokerage) || 0 });
+    setSaving(false);
+  }
+
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={S.drawerName}>{trade ? "Edit Trade" : "New Trade"}</div>
+        <Field label="Client Name" required>
+          <input className="ninput" placeholder="e.g. Rohan Mehta" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+        </Field>
+        <Field label="Buying Lot">
+          <input className="ninput" placeholder="e.g. RELIANCE - 10 lots" value={buyingLot} onChange={(e) => setBuyingLot(e.target.value)} />
+        </Field>
+        <Field label="Brokerage (₹)">
+          <input className="ninput" placeholder="e.g. 500" value={brokerage} onChange={(e) => setBrokerage(e.target.value)} />
+        </Field>
+        {formError && <div style={S.formError}>{formError}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button className="primary" onClick={submit} disabled={saving} style={{ flex: 1, opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button className="ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
     </div>
   );
 }

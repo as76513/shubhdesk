@@ -93,7 +93,7 @@ const schema = a.schema({
     .model({
       username: a.string().required(), // matches Cognito username
       displayName: a.string().required(),
-      role: a.enum(['admin', 'rm', 'sales']),
+      role: a.enum(['admin', 'rm', 'sales', 'dealer']),
     })
     .authorization((allow) => [
       allow.group('admin'),
@@ -113,6 +113,22 @@ const schema = a.schema({
       allow.group('admin'),
       // Any signed-in staff can read/update the counter when creating a lead.
       allow.authenticated().to(['read', 'create', 'update']),
+    ]),
+
+  // Dealer trade log. Deliberately standalone from Lead — dealers
+  // execute trades independently of the sales/RM pipeline, and this
+  // is intentionally a minimal 3-field record, not a cut-down Lead.
+  Trade: a
+    .model({
+      clientName: a.string().required(),
+      buyingLot: a.string(),   // free text: instrument + quantity, dealer's own shorthand
+      brokerage: a.integer(),  // brokerage earned on the trade, in rupees
+      owner: a.string(),       // the dealer who logged it
+    })
+    .authorization((allow) => [
+      allow.group('admin'),
+      // A dealer sees and manages only their own trades.
+      allow.ownerDefinedIn('owner'),
     ]),
 
   Note: a
