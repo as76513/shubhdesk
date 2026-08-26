@@ -67,6 +67,40 @@ export async function listStaff() {
   return data;
 }
 
+/**
+ * Create a StaffProfile row for the current user if one doesn't exist
+ * yet, using the local part of their email as a friendly display name
+ * (e.g. "dealer@shubhdesk.test" -> "dealer"). Runs once per login and
+ * is a no-op if a row already exists — this is what stops every new
+ * hire from showing up as a raw Cognito ID until an admin manually
+ * seeds a StaffProfile row for them.
+ */
+export async function ensureOwnStaffProfile(role: Role) {
+  const user = await getCurrentUser();
+  const { data: existing, errors } = await client.models.StaffProfile.list({
+    filter: { username: { eq: user.username } },
+  });
+  if (errors) throw errors;
+  if (existing.length > 0) return existing[0];
+
+  let displayName = user.username;
+  try {
+    const attrs = await fetchUserAttributes();
+    if (attrs.email) displayName = attrs.email.split('@')[0];
+    else if (attrs.preferred_username) displayName = attrs.preferred_username;
+  } catch {
+    /* fall back to username */
+  }
+
+  const { data, errors: createErrors } = await client.models.StaffProfile.create({
+    username: user.username,
+    displayName,
+    role,
+  });
+  if (createErrors) throw createErrors;
+  return data;
+}
+
 
 /** All leads the signed-in user is allowed to see (server enforces this). */
 export async function listLeads() {

@@ -17,6 +17,7 @@ import {
   listLeads,
   listStaff,
   listRMs,
+  ensureOwnStaffProfile,
   createLead as apiCreateLead,
   moveStage as apiMoveStage,
   addNote as apiAddNote,
@@ -130,6 +131,7 @@ export default function App() {
       try {
         const meInfo = await getMe();
         setMe(meInfo);
+        await ensureOwnStaffProfile(meInfo.role);
         if (meInfo.role === "dealer") {
           const [tr, st] = await Promise.all([listTrades(), listStaff()]);
           setTrades(tr);
@@ -888,6 +890,7 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
       <div style={S.list}>
         <div style={{ ...S.listRow, cursor: "default" }}>
           <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Date</div>
+          <div style={{ flex: 1.5, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Dealer</div>
           <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Client Name</div>
           <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Buying Lot</div>
           <div style={{ flex: 1, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Brokerage</div>
@@ -896,6 +899,7 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
         {trades.map((t) => (
           <div key={t.id} className="row" style={S.listRow}>
             <div style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</div>
+            <div style={{ flex: 1.5, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{nameOf(t.owner)}</div>
             <div style={{ flex: 2, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{t.clientName}</div>
             <div style={{ flex: 2, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{t.buyingLot || "—"}</div>
             <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</div>

@@ -87,8 +87,10 @@ const schema = a.schema({
 
   // Staff directory: maps a Cognito username to a display name and role.
   // Lets the app show "Anita (RM)" on cards and populate the handoff
-  // dropdown without querying Cognito from the browser. Create one row
-  // per employee (see seed step in the deploy guide).
+  // dropdown without querying Cognito from the browser. Auto-created by
+  // the app on first login (see ensureOwnStaffProfile in leadClient.ts)
+  // if missing, using the user's email; admins can fix up displayName
+  // afterward via the Data manager.
   StaffProfile: a
     .model({
       username: a.string().required(), // matches Cognito username
@@ -97,6 +99,10 @@ const schema = a.schema({
     })
     .authorization((allow) => [
       allow.group('admin'),
+      // A user may create/update only their own row (username must
+      // match their own identity) — this is what lets self-registration
+      // work without granting broad write access to the directory.
+      allow.ownerDefinedIn('username').to(['create', 'update']),
       // Everyone can read the directory (needed for names + handoff list).
       allow.authenticated().to(['read']),
     ]),
