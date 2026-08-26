@@ -25,7 +25,7 @@ import {
   friendlyError,
   type Role,
 } from "./leadClient";
-import { buildEmployeeReport, reportToCSV, downloadCSV, type ReportPeriod } from "./report";
+import { buildEmployeeReport, reportToCSV, tradesToCSV, downloadCSV, type ReportPeriod } from "./report";
 import {
   listTrades,
   createTrade as apiCreateTrade,
@@ -810,19 +810,28 @@ function TradesView({ trades, onCreate, onUpdate, onDelete }: {
   onDelete: (id: string) => void;
 }) {
   const [editing, setEditing] = useState<Trade | "new" | null>(null);
+  const [downloadDate, setDownloadDate] = useState(todayISO());
 
   async function handleSave(input: { clientName: string; buyingLot?: string; brokerage?: number }) {
     const ok = editing === "new" ? await onCreate(input) : await onUpdate({ id: (editing as Trade).id, ...input });
     if (ok) setEditing(null);
   }
 
+  function download() {
+    const csv = tradesToCSV(trades, downloadDate);
+    downloadCSV(`shubhdesk-trades-${downloadDate}.csv`, csv);
+  }
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <input type="date" className="ninput" style={{ width: "auto" }} value={downloadDate} onChange={(e) => setDownloadDate(e.target.value)} />
+        <button className="ghost" onClick={download}>⬇ Download Day's Trades</button>
         <button className="primary" onClick={() => setEditing("new")}>+ New Trade</button>
       </div>
       <div style={S.list}>
         <div style={{ ...S.listRow, cursor: "default" }}>
+          <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Date</div>
           <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Client Name</div>
           <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Buying Lot</div>
           <div style={{ flex: 1, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Brokerage</div>
@@ -830,6 +839,7 @@ function TradesView({ trades, onCreate, onUpdate, onDelete }: {
         </div>
         {trades.map((t) => (
           <div key={t.id} className="row" style={S.listRow}>
+            <div style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</div>
             <div style={{ flex: 2, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{t.clientName}</div>
             <div style={{ flex: 2, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{t.buyingLot || "—"}</div>
             <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</div>

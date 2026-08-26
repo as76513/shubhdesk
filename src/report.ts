@@ -2,6 +2,7 @@ import type { Schema } from "../amplify/data/resource";
 
 type Lead = Schema["Lead"]["type"];
 type Staff = Schema["StaffProfile"]["type"];
+type Trade = Schema["Trade"]["type"];
 
 export type ReportPeriod = "thisWeek" | "thisMonth" | "lastMonth";
 
@@ -124,6 +125,18 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
     ];
     lines.push(cells.map(csvEscape).join(","));
   });
+  return lines.join("\n");
+}
+
+/** CSV of trades for one calendar day (YYYY-MM-DD), for the admin's daily download. */
+export function tradesToCSV(trades: Trade[], date: string): string {
+  const header = ["Date", "Client Name", "Buying Lot", "Brokerage (INR)"];
+  const lines = [header.map(csvEscape).join(",")];
+  trades
+    .filter((t) => (t.createdAt ?? "").slice(0, 10) === date)
+    .forEach((t) => {
+      lines.push([date, t.clientName, t.buyingLot ?? "", t.brokerage ?? 0].map(csvEscape).join(","));
+    });
   return lines.join("\n");
 }
 
