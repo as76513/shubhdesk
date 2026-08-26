@@ -53,7 +53,10 @@ export function buildEmployeeReport(
   const range = periodRange(period);
   const dateOf = (s?: string | null) => (s ? s.slice(0, 10) : "");
   const inRange = (d: string) => !!d && d >= range.start && d <= range.end;
-  const nameOf = (username: string) => staff.find((s) => s.username === username)?.displayName ?? username;
+  const nameOf = (username: string) => {
+    const raw = staff.find((s) => s.username === username)?.displayName ?? username;
+    return raw.includes("@") ? raw.split("@")[0] : raw;
+  };
 
   const usernames = new Set<string>();
   leads.forEach((l) => {
