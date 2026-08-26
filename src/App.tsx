@@ -204,7 +204,7 @@ export default function App() {
     setHandoffPrompt(null);
   }
 
-  function confirmReject(reason?: string) {
+  function confirmReject(reason: string) {
     if (!rejectPrompt) return;
     handleMove(rejectPrompt.lead, "rejected", undefined, reason);
     setRejectPrompt(null);
@@ -408,13 +408,13 @@ export default function App() {
         <div style={S.overlay} onClick={() => setRejectPrompt(null)}>
           <div style={S.modal} onClick={(e) => e.stopPropagation()}>
             <div style={S.drawerName}>Why did they reject?</div>
-            <div style={S.hint}>Optional — helps target win-back follow-ups later.</div>
+            <div style={S.hint}>Required — helps target win-back follow-ups later.</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
               {REJECTION_REASONS.map((r) => (
                 <button key={r.id} className="ghost" onClick={() => confirmReject(r.id)}>{r.label}</button>
               ))}
             </div>
-            <button className="ghost" style={{ marginTop: 12 }} onClick={() => confirmReject(undefined)}>Skip</button>
+            <button className="ghost" style={{ marginTop: 12 }} onClick={() => setRejectPrompt(null)}>Cancel</button>
           </div>
         </div>
       )}
