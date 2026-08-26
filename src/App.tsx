@@ -1,6 +1,18 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { signOut } from "aws-amplify/auth";
 import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
   getMe,
   listLeads,
   listStaff,
@@ -327,59 +339,99 @@ function Board({ leads, onOpen, nameOf, onMove, canEdit }: {
   onMove: (lead: Lead, stage: string) => void;
   canEdit: (lead: Lead) => boolean;
 }) {
-  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [activeLead, setActiveLead] = useState<Lead | null>(null);
 
-  function handleDrop(e: React.DragEvent, targetStageId: string) {
-    e.preventDefault();
-    setDragOverStage(null);
-    const leadId = e.dataTransfer.getData("text/plain");
-    const lead = leads.find((l) => l.id === leadId);
-    if (!lead) return;
-    onMove(lead, targetStageId);
+  // Mouse needs a small move-distance before a drag starts (so a plain
+  // click still opens the drawer); touch needs a short hold instead, so
+  // a quick swipe still scrolls the column normally.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
+  );
+
+  function handleDragStart(e: DragStartEvent) {
+    setActiveLead(leads.find((l) => l.id === e.active.id) ?? null);
+  }
+
+  function handleDragEnd(e: DragEndEvent) {
+    setActiveLead(null);
+    const lead = leads.find((l) => l.id === e.active.id);
+    if (!lead || !e.over) return;
+    onMove(lead, String(e.over.id));
   }
 
   return (
-    <div style={S.board}>
-      {STAGES.map((stage) => {
-        const items = leads.filter((l) => l.stage === stage.id);
-        return (
-          <div key={stage.id} style={S.column}>
-            <div style={{ ...S.colHeader, borderTopColor: stage.color }}>
-              <span style={S.colTitle}>{stage.label}</span>
-              <span style={S.colCount}>{items.length}</span>
-            </div>
-            <div
-              style={{ ...S.colBody, ...(dragOverStage === stage.id ? S.colBodyDragOver : {}) }}
-              onDragOver={(e) => { e.preventDefault(); setDragOverStage(stage.id); }}
-              onDragLeave={() => setDragOverStage((s) => (s === stage.id ? null : s))}
-              onDrop={(e) => handleDrop(e, stage.id)}
-            >
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveLead(null)}>
+      <div style={S.board}>
+        {STAGES.map((stage) => {
+          const items = leads.filter((l) => l.stage === stage.id);
+          return (
+            <DroppableColumn key={stage.id} stage={stage} count={items.length}>
               {items.map((l) => (
-                <LeadCard key={l.id} lead={l} onOpen={onOpen} nameOf={nameOf} draggable={canEdit(l)} />
+                <DraggableLeadCard key={l.id} lead={l} onOpen={onOpen} nameOf={nameOf} draggable={canEdit(l)} />
               ))}
               {items.length === 0 && <div style={S.empty}>No leads</div>}
-            </div>
-          </div>
-        );
-      })}
+            </DroppableColumn>
+          );
+        })}
+      </div>
+      <DragOverlay>
+        {activeLead ? <LeadCardVisual lead={activeLead} nameOf={nameOf} dragging /> : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+function DroppableColumn({ stage, count, children }: { stage: (typeof STAGES)[number]; count: number; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage.id });
+  return (
+    <div style={S.column}>
+      <div style={{ ...S.colHeader, borderTopColor: stage.color }}>
+        <span style={S.colTitle}>{stage.label}</span>
+        <span style={S.colCount}>{count}</span>
+      </div>
+      <div ref={setNodeRef} style={{ ...S.colBody, ...(isOver ? S.colBodyDragOver : {}) }}>
+        {children}
+      </div>
     </div>
   );
 }
 
-function LeadCard({ lead, onOpen, nameOf, draggable }: {
+function DraggableLeadCard({ lead, onOpen, nameOf, draggable }: {
   lead: Lead;
   onOpen: (l: Lead) => void;
   nameOf: (u?: string | null) => string;
   draggable?: boolean;
 }) {
+  // The moving visual is handled entirely by <DragOverlay>; this element
+  // just fades in place as a placeholder while dragging.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: lead.id, disabled: !draggable });
+  const style: React.CSSProperties = {
+    opacity: isDragging ? 0.35 : 1,
+    touchAction: draggable ? "none" : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} onClick={() => onOpen(lead)} {...(draggable ? { ...listeners, ...attributes } : {})}>
+      <LeadCardVisual lead={lead} nameOf={nameOf} draggable={draggable} />
+    </div>
+  );
+}
+
+function LeadCardVisual({ lead, nameOf, draggable, dragging }: {
+  lead: Lead;
+  nameOf: (u?: string | null) => string;
+  draggable?: boolean;
+  dragging?: boolean;
+}) {
   const st = stageOf(lead.stage);
   return (
     <div
       className="card"
-      style={{ ...S.card, cursor: draggable ? "grab" : "pointer" }}
-      draggable={draggable}
-      onDragStart={(e) => { e.dataTransfer.setData("text/plain", lead.id); e.dataTransfer.effectAllowed = "move"; }}
-      onClick={() => onOpen(lead)}
+      style={{
+        ...S.card,
+        cursor: draggable ? (dragging ? "grabbing" : "grab") : "pointer",
+        ...(dragging ? { boxShadow: "0 10px 24px rgba(0,0,0,.25)" } : {}),
+      }}
     >
       <div style={S.cardCode}>{lead.clientCode}</div>
       <div style={S.cardTop}>
