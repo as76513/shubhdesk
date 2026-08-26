@@ -45,6 +45,14 @@ const schema = a.schema({
       ]),
       value: a.integer(),
 
+      // Where the lead came from. Optional, defaults to a sensible
+      // choice in the UI — not meant to add data-entry overhead.
+      source: a.enum(['cold_call', 'referral', 'walk_in', 'existing_client', 'digital', 'other']),
+
+      // Why a lead was rejected. Optional and only ever set when
+      // stage moves to "rejected" — feeds the win-back follow-up flow.
+      rejectionReason: a.enum(['not_interested', 'competitor', 'budget', 'bad_timing', 'other']),
+
       // --- Win-back follow-up ---
       // Date to revisit a dormant/rejected client (YYYY-MM-DD).
       followUpOn: a.date(),

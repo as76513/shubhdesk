@@ -51,8 +51,27 @@ const STAGES = [
 const SERVICES = ["Trading", "SIP", "Insurance", "Loans"] as const;
 const SALES_STAGES = ["new", "calling", "contacted"];
 
+const SOURCES = [
+  { id: "cold_call", label: "Cold Call" },
+  { id: "referral", label: "Referral" },
+  { id: "walk_in", label: "Walk-in" },
+  { id: "existing_client", label: "Existing Client" },
+  { id: "digital", label: "Digital/Social" },
+  { id: "other", label: "Other" },
+];
+
+const REJECTION_REASONS = [
+  { id: "not_interested", label: "Not Interested" },
+  { id: "competitor", label: "Chose Competitor" },
+  { id: "budget", label: "Budget" },
+  { id: "bad_timing", label: "Bad Timing" },
+  { id: "other", label: "Other" },
+];
+
 const rupee = (n?: number | null) => "₹" + (n ?? 0).toLocaleString("en-IN");
 const stageOf = (id?: string | null) => STAGES.find((s) => s.id === id) ?? STAGES[0];
+const sourceOf = (id?: string | null) => SOURCES.find((s) => s.id === id)?.label ?? id;
+const reasonOf = (id?: string | null) => REJECTION_REASONS.find((r) => r.id === id)?.label ?? id;
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const LOGO = "/shubhshree-logo.jpg"; // served from public/; for prod you can use https://app.shubhshreeknowledgehub.com/assets/logo.png
 
@@ -68,6 +87,7 @@ export default function App() {
   const [selected, setSelected] = useState<Lead | null>(null);
   const [filterService, setFilterService] = useState("All");
   const [handoffPrompt, setHandoffPrompt] = useState<{ lead: Lead; targetStage: string } | null>(null);
+  const [rejectPrompt, setRejectPrompt] = useState<{ lead: Lead } | null>(null);
 
   // Resolve a username to a display name via the staff directory.
   const nameOf = useCallback(
@@ -151,6 +171,10 @@ export default function App() {
       setHandoffPrompt({ lead, targetStage });
       return;
     }
+    if (targetStage === "rejected") {
+      setRejectPrompt({ lead });
+      return;
+    }
     handleMove(lead, targetStage);
   }
 
@@ -160,12 +184,20 @@ export default function App() {
     setHandoffPrompt(null);
   }
 
+  function confirmReject(reason?: string) {
+    if (!rejectPrompt) return;
+    handleMove(rejectPrompt.lead, "rejected", undefined, reason);
+    setRejectPrompt(null);
+  }
+
   // ---- actions (optimistic where safe, then refetch) ----
-  async function handleMove(lead: Lead, newStage: string, rmUsername?: string) {
+  async function handleMove(lead: Lead, newStage: string, rmUsername?: string, rejectionReason?: string) {
     try {
-      await apiMoveStage(lead, newStage, rmUsername);
+      await apiMoveStage(lead, newStage, rmUsername, rejectionReason);
       await refresh();
-      setSelected((s) => (s && s.id === lead.id ? { ...s, stage: newStage as Lead["stage"], owner: rmUsername ?? s.owner } : s));
+      setSelected((s) => (s && s.id === lead.id
+        ? { ...s, stage: newStage as Lead["stage"], owner: rmUsername ?? s.owner, rejectionReason: (rejectionReason as Lead["rejectionReason"]) ?? s.rejectionReason }
+        : s));
     } catch (e) {
       setError(friendlyError(e, "Couldn't update the stage. Please try again."));
     }
@@ -281,6 +313,21 @@ export default function App() {
               ))}
             </div>
             <button className="ghost" style={{ marginTop: 12 }} onClick={() => setHandoffPrompt(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {rejectPrompt && (
+        <div style={S.overlay} onClick={() => setRejectPrompt(null)}>
+          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={S.drawerName}>Why did they reject?</div>
+            <div style={S.hint}>Optional — helps target win-back follow-ups later.</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+              {REJECTION_REASONS.map((r) => (
+                <button key={r.id} className="ghost" onClick={() => confirmReject(r.id)}>{r.label}</button>
+              ))}
+            </div>
+            <button className="ghost" style={{ marginTop: 12 }} onClick={() => confirmReject(undefined)}>Skip</button>
           </div>
         </div>
       )}
@@ -562,12 +609,16 @@ function LeadDrawer({
           <div style={S.sectionLabel}>Client Details</div>
           <div style={S.detailRow}><span style={S.detailKey}>Phone</span><span>{lead.phone || "—"}</span></div>
           <div style={S.detailRow}><span style={S.detailKey}>Email</span><span>{lead.email || "—"}</span></div>
+          <div style={S.detailRow}><span style={S.detailKey}>Source</span><span>{sourceOf(lead.source) || "—"}</span></div>
           <div style={S.detailRow}><span style={S.detailKey}>Wants</span><span style={{ textAlign: "right", maxWidth: 260 }}>{lead.requirements || "—"}</span></div>
         </div>
 
         <div style={S.drawerSection}>
           <div style={S.sectionLabel}>Current Stage</div>
           <span style={{ ...S.stagePill, background: st.color, fontSize: 14, padding: "6px 14px" }}>{st.label}</span>
+          {lead.stage === "rejected" && lead.rejectionReason && (
+            <div style={{ ...S.rowPhone, marginTop: 6 }}>Reason: {reasonOf(lead.rejectionReason)}</div>
+          )}
         </div>
 
         <div style={S.drawerSection}>
@@ -706,7 +757,7 @@ function NewLeadButton({ onCreate }: { onCreate: (input: any) => Promise<boolean
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [form, setForm] = useState({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "" });
+  const [form, setForm] = useState({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "", source: "cold_call" });
 
   async function submit() {
     const client = form.client.trim();
@@ -720,7 +771,7 @@ function NewLeadButton({ onCreate }: { onCreate: (input: any) => Promise<boolean
     const ok = await onCreate({ ...form, client, email, value: Number(form.value) || 0 });
     setSaving(false);
     if (ok) {
-      setForm({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "" });
+      setForm({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "", source: "cold_call" });
       setOpen(false);
     }
   }
@@ -748,6 +799,11 @@ function NewLeadButton({ onCreate }: { onCreate: (input: any) => Promise<boolean
             <Field label="Service">
               <select className="sel" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} style={{ width: "100%" }}>
                 {SERVICES.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Source">
+              <select className="sel" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} style={{ width: "100%" }}>
+                {SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </Field>
             <Field label="Estimated value (₹)">

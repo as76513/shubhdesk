@@ -102,6 +102,7 @@ export async function createLead(input: {
   requirements?: string;
   service: 'Trading' | 'SIP' | 'Insurance' | 'Loans';
   value?: number;
+  source?: 'cold_call' | 'referral' | 'walk_in' | 'existing_client' | 'digital' | 'other';
 }) {
   const me = await getCurrentUser();
   const clientCode = await nextClientCode();
@@ -141,17 +142,28 @@ export async function listFollowUpsDue(asOf?: string) {
   return data;
 }
 
+const REJECTION_REASON_LABELS: Record<string, string> = {
+  not_interested: 'Not Interested',
+  competitor: 'Chose Competitor',
+  budget: 'Budget',
+  bad_timing: 'Bad Timing',
+  other: 'Other',
+};
+
 /**
  * Move a lead to a new stage.
  * If it's the sales -> RM handoff (entering "meeting" from a sales
  * stage), we also switch `owner` to the chosen RM and write a system
  * log entry — all in the same flow. After this, the salesman loses
  * write access automatically because he's no longer the owner.
+ *
+ * `rejectionReason` is only meaningful when newStage is "rejected".
  */
 export async function moveStage(
   lead: Schema['Lead']['type'],
   newStage: string,
-  rmUsername?: string
+  rmUsername?: string,
+  rejectionReason?: string
 ) {
   const me = await getCurrentUser();
   const isHandoff =
@@ -159,16 +171,18 @@ export async function moveStage(
 
   const update: Record<string, unknown> = { id: lead.id, stage: newStage };
   if (isHandoff) update.owner = rmUsername;
+  if (newStage === 'rejected' && rejectionReason) update.rejectionReason = rejectionReason;
 
   const { data, errors } = await client.models.Lead.update(update as any);
   if (errors) throw errors;
 
   // Write the matching activity-log entry.
+  const reasonLabel = rejectionReason ? REJECTION_REASON_LABELS[rejectionReason] : undefined;
   await addNote(
     lead.id,
     isHandoff
       ? `Handed off to ${rmUsername} by ${me.username}`
-      : `Moved to ${newStage}`,
+      : `Moved to ${newStage}${reasonLabel ? ` (Reason: ${reasonLabel})` : ''}`,
     'system'
   );
 
