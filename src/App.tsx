@@ -176,7 +176,6 @@ export default function App() {
       active: active.length,
       closed: closed.length,
       pipelineValue: active.reduce((s, l) => s + (l.value ?? 0), 0),
-      wonValue: closed.reduce((s, l) => s + (l.value ?? 0), 0),
     };
   }, [visibleLeads]);
 
@@ -227,7 +226,7 @@ export default function App() {
   // ---- actions (optimistic where safe, then refetch) ----
   async function handleMove(lead: Lead, newStage: string, rmUsername?: string, rejectionReason?: string) {
     try {
-      await apiMoveStage(lead, newStage, rmUsername, rejectionReason);
+      await apiMoveStage(lead, newStage, rmUsername, rejectionReason, nameOf, (id) => stageOf(id).label);
       await refresh();
       setSelected((s) => (s && s.id === lead.id
         ? { ...s, stage: newStage as Lead["stage"], owner: rmUsername ?? s.owner, rejectionReason: (rejectionReason as Lead["rejectionReason"]) ?? s.rejectionReason }
@@ -468,9 +467,7 @@ function StatBar({ stats, totalBrokerage }: { stats: any; totalBrokerage?: numbe
     { label: "Active", value: stats.active },
     { label: "Closed Won", value: stats.closed },
     { label: "Pipeline Value", value: rupee(stats.pipelineValue) },
-    totalBrokerage != null
-      ? { label: "Total Brokerage (Today)", value: rupee(totalBrokerage) }
-      : { label: "Won Value", value: rupee(stats.wonValue) },
+    ...(totalBrokerage != null ? [{ label: "Total Brokerage (Today)", value: rupee(totalBrokerage) }] : []),
   ];
   return (
     <div style={S.statBar}>
@@ -593,7 +590,11 @@ function LeadCardVisual({ lead, nameOf, draggable, dragging }: {
       </div>
       <div style={S.cardMeta}>
         <span style={{ ...S.serviceTag, background: st.color + "1A", color: st.color }}>{lead.service}</span>
-        <span>{nameOf(lead.owner).split(" ")[0]}</span>
+        <span>
+          {lead.stage === "rejected" && lead.rejectionReason
+            ? reasonOf(lead.rejectionReason)
+            : nameOf(lead.owner).split(" ")[0]}
+        </span>
       </div>
     </div>
   );
@@ -721,10 +722,14 @@ function LeadDrawer({
 
         <div style={S.drawerSection}>
           <div style={S.sectionLabel}>Current Stage</div>
-          <span style={{ ...S.stagePill, background: st.color, fontSize: 14, padding: "6px 14px" }}>{st.label}</span>
-          {lead.stage === "rejected" && lead.rejectionReason && (
-            <div style={{ ...S.rowPhone, marginTop: 6 }}>Reason: {reasonOf(lead.rejectionReason)}</div>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ ...S.stagePill, background: st.color, fontSize: 14, padding: "6px 14px" }}>{st.label}</span>
+            {lead.stage === "rejected" && lead.rejectionReason && (
+              <span style={{ ...S.stagePill, background: "#FEE2E2", color: "#991B1B", fontSize: 12.5, padding: "5px 12px" }}>
+                ✕ {reasonOf(lead.rejectionReason)}
+              </span>
+            )}
+          </div>
         </div>
 
         <div style={S.drawerSection}>
@@ -788,7 +793,7 @@ function LeadDrawer({
                 <div style={n.type === "system" ? S.sysText : S.noteText}>
                   {n.type === "system" && "⚙ "}{n.text}
                 </div>
-                <div style={S.noteMeta}>{n.author} · {(n.createdAt ?? "").slice(0, 10)}</div>
+                <div style={S.noteMeta}>{nameOf(n.author)} · {(n.createdAt ?? "").slice(0, 10)}</div>
               </div>
             ))}
           </div>

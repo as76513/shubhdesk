@@ -146,7 +146,7 @@ const schema = a.schema({
       // "note" = a human comment, "system" = auto entry (stage change,
       // handoff). The UI styles them differently.
       type: a.enum(['note', 'system']),
-      author: a.string(), // display name captured at write time
+      author: a.string(), // Cognito username at write time; resolved to a display name via nameOf() at render, same as Lead.owner/sourcedBy
     })
     .authorization((allow) => [
       allow.group('admin'),

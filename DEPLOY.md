@@ -91,23 +91,25 @@ row** (so the app can show their name and list RMs for handoff).
 **Users**, for each of your ~8 people:
 
 1. Create the user with their email.
-2. Add them to one group: `sales`, `rm`, or `admin`.
+2. Add them to one group: `sales`, `rm`, `dealer`, or `admin`.
 
 Cognito emails them an invite — no passwords to manage by hand.
 
-**4b. Staff profile.** In the Amplify console → **Data manager**, add a
-`StaffProfile` row for each person:
+**4b. Staff profile (usually automatic).** The app creates a
+`StaffProfile` row for each person the first time they log in, using
+the local part of their email as the display name (e.g.
+`anita@shubhshreeknowledgehub.com` → "anita"). Nothing to do here for
+the app to work correctly.
 
-- `username` — must match their Cognito username exactly
+If you want a nicer name than the auto-generated one, edit the row
+afterward in the Amplify console → **Data manager**:
+
+- `username` — must match their Cognito username exactly (not their email)
 - `displayName` — e.g. "Anita Desai (RM)"
-- `role` — `sales`, `rm`, or `admin`
+- `role` — `sales`, `rm`, `dealer`, or `admin`
 
 This directory is what turns usernames into friendly names on cards and
-populates the "Hand off to RM" dropdown. An employee without a profile
-row still works, but shows as their raw username.
-
-> Tip: you can also seed these rows programmatically in a one-off script
-> using the same data client, if you'd rather not click through the UI.
+populates the "Hand off to RM" dropdown.
 
 ---
 

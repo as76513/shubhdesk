@@ -199,7 +199,9 @@ export async function moveStage(
   lead: Schema['Lead']['type'],
   newStage: string,
   rmUsername?: string,
-  rejectionReason?: string
+  rejectionReason?: string,
+  nameOf?: (u?: string | null) => string,
+  stageLabelOf?: (id: string) => string
 ) {
   const me = await getCurrentUser();
   const isHandoff =
@@ -212,13 +214,22 @@ export async function moveStage(
   const { data, errors } = await client.models.Lead.update(update as any);
   if (errors) throw errors;
 
-  // Write the matching activity-log entry.
+  // Write the matching activity-log entry. Resolve to display names (via
+  // the staff directory) rather than baking raw Cognito usernames into
+  // the note text, which can't be fixed up later since it's free text.
+  // Includes the "from" stage too, so each entry states its own
+  // transition and the pipeline path is readable without needing to
+  // cross-reference surrounding entries or dates.
+  const resolve = (u: string) => (nameOf ? nameOf(u) : u);
+  const label = (id: string) => (stageLabelOf ? stageLabelOf(id) : id);
+  const fromLabel = label(lead.stage ?? '');
+  const toLabel = label(newStage);
   const reasonLabel = rejectionReason ? REJECTION_REASON_LABELS[rejectionReason] : undefined;
   await addNote(
     lead.id,
     isHandoff
-      ? `Handed off to ${rmUsername} by ${me.username}`
-      : `Moved to ${newStage}${reasonLabel ? ` (Reason: ${reasonLabel})` : ''}`,
+      ? `Handed off to ${resolve(rmUsername!)} by ${resolve(me.username)} (${fromLabel} → ${toLabel})`
+      : `Moved from ${fromLabel} to ${toLabel}${reasonLabel ? ` (Reason: ${reasonLabel})` : ''}`,
     'system'
   );
 

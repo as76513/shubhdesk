@@ -72,7 +72,15 @@ a grid of every stage. Rejected is also reachable from any later stage
 below that choice. Rejecting (from anywhere) requires picking a
 one-click **reason** (Not Interested / Chose Competitor / Budget / Bad
 Timing / Other) — no skipping — which feeds the win-back follow-up
-decision later.
+decision later. The reason is shown as a red badge next to the stage
+pill in the drawer, and on the board it replaces the owner's name in
+a rejected lead's card (once a lead is dead, why it died is more
+useful than who owns it).
+
+The **Activity Log** in the drawer states each transition explicitly
+("Moved from New Lead to Meeting / Consultation", "Handed off to
+Anita by Amol") so the pipeline path is readable from the log text
+alone, without needing to cross-reference dates or entry order.
 
 Every new lead also gets a **source** (Cold Call / Referral / Walk-in /
 Existing Client / Digital / Other) — a single dropdown defaulting to
@@ -96,6 +104,11 @@ follow progress but not edit or comment further.
 dormant one — can get a `followUpOn` date. The "Follow-ups Due" tab
 (admin/RM only) lists everything due today or earlier, for reconnecting
 with clients who didn't convert the first time.
+
+**Top stat bar**: Total Leads, Active, Closed Won, and Pipeline Value
+for everyone. Admin gets a 5th card, **Total Brokerage (Today)** —
+today's trades summed — instead of a lead-based "Won Value", since
+admin is the only non-dealer role with Trade visibility.
 
 ---
 
@@ -132,16 +145,21 @@ rejects a write from anyone who isn't the current owner or an admin,
 even if a client bypassed the UI entirely. See `SCHEMA_DESIGN.md` for
 how the schema encodes this.
 
-### Staff setup gotcha
+### Staff setup
 
-Every employee needs **two** things, not one: a Cognito user (created in
-the console) *and* a matching `StaffProfile` row (`username`,
-`displayName`, `role`) — otherwise they show up as a raw ID instead of
-their name, and RMs without a profile row won't appear in the handoff
-picker at all. The `StaffProfile.username` must be their actual Cognito
+A `StaffProfile` row (`username`, `displayName`, `role`) is what turns
+a raw Cognito ID into a friendly name on cards and in the RM handoff
+picker. **This now happens automatically** — the app creates it on a
+user's first login, using the local part of their email as the display
+name (e.g. `dealer@shubhdesk.test` → "dealer"). No admin step required
+for the app to work correctly.
+
+If you want a nicer name than the email prefix, an admin can still
+edit the row afterward in the Amplify console's Data manager. The
+`StaffProfile.username` there must be the user's actual Cognito
 **Username**, which is an auto-generated ID — **not their email** —
-visible on the user's detail page in the Cognito console. Full steps in
-`DEPLOY.md`.
+visible on the user's detail page in the Cognito console. Full steps
+in `DEPLOY.md`.
 
 ---
 
