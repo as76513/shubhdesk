@@ -530,7 +530,7 @@ function DroppableColumn({ stage, count, children }: { stage: (typeof STAGES)[nu
         <span style={S.colTitle}>{stage.label}</span>
         <span style={S.colCount}>{count}</span>
       </div>
-      <div ref={setNodeRef} style={{ ...S.colBody, ...(isOver ? S.colBodyDragOver : {}) }}>
+      <div ref={setNodeRef} className="colBody" style={{ ...S.colBody, ...(isOver ? S.colBodyDragOver : {}) }}>
         {children}
       </div>
     </div>
@@ -577,10 +577,10 @@ function LeadCardVisual({ lead, nameOf, draggable, dragging }: {
       <div style={S.cardCode}>{lead.clientCode}</div>
       <div style={S.cardTop}>
         <span style={S.cardName}>{lead.client}</span>
-        <span style={{ ...S.serviceTag, background: st.color + "1A", color: st.color }}>{lead.service}</span>
+        <span style={S.cardValue}>{rupee(lead.value)}</span>
       </div>
-      <div style={S.cardValue}>{rupee(lead.value)}</div>
       <div style={S.cardMeta}>
+        <span style={{ ...S.serviceTag, background: st.color + "1A", color: st.color }}>{lead.service}</span>
         <span>{nameOf(lead.owner).split(" ")[0]}</span>
       </div>
     </div>
@@ -1110,15 +1110,15 @@ const S: Record<string, React.CSSProperties> = {
   colHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderTop: "3px solid", borderRadius: `${RADIUS.lg}px ${RADIUS.lg}px 0 0` },
   colTitle: { fontSize: 12.5, fontWeight: 700, letterSpacing: ".1px" },
   colCount: { fontSize: 11, fontWeight: 600, background: "rgba(15,23,42,.06)", borderRadius: RADIUS.pill, padding: "2px 9px", color: "#4B5563" },
-  colBody: { padding: 10, display: "flex", flexDirection: "column", gap: 8, minHeight: 80, borderRadius: `0 0 ${RADIUS.lg}px ${RADIUS.lg}px`, transition: "background .12s ease" },
+  colBody: { padding: 10, display: "flex", flexDirection: "column", gap: 6, minHeight: 80, maxHeight: "calc(100vh - 320px)", overflowY: "auto", borderRadius: `0 0 ${RADIUS.lg}px ${RADIUS.lg}px`, transition: "background .12s ease" },
   colBodyDragOver: { background: "#FBF3DC", outline: "2px dashed #E0AA3D", outlineOffset: -6 },
-  card: { background: "#fff", border: "1px solid #EEF0F3", borderLeft: "3px solid transparent", borderRadius: RADIUS.md, padding: "12px 13px", cursor: "pointer", transition: "box-shadow .15s ease, transform .15s ease, border-color .15s ease" },
-  cardCode: { fontSize: 10, fontWeight: 700, color: "#8A6A1C", letterSpacing: ".5px", marginBottom: 5 },
-  cardTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
-  cardName: { fontWeight: 600, fontSize: 14, color: "#111827" },
-  serviceTag: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: RADIUS.sm, whiteSpace: "nowrap" },
-  cardValue: { fontSize: 15, fontWeight: 700, marginTop: 7, color: "#07163F", letterSpacing: "-.1px" },
-  cardMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "#6B7280", marginTop: 9, paddingTop: 9, borderTop: "1px solid #F3F4F6" },
+  card: { background: "#fff", border: "1px solid #EEF0F3", borderLeft: "3px solid transparent", borderRadius: RADIUS.md, padding: "9px 11px", cursor: "pointer", transition: "box-shadow .15s ease, transform .15s ease, border-color .15s ease" },
+  cardCode: { fontSize: 9.5, fontWeight: 700, color: "#8A6A1C", letterSpacing: ".4px", marginBottom: 3 },
+  cardTop: { display: "flex", alignItems: "baseline", gap: 8 },
+  cardName: { fontWeight: 600, fontSize: 13, color: "#111827", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  serviceTag: { fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: RADIUS.sm, whiteSpace: "nowrap" },
+  cardValue: { fontSize: 13, fontWeight: 700, color: "#07163F", letterSpacing: "-.1px", whiteSpace: "nowrap", flexShrink: 0 },
+  cardMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10.5, color: "#6B7280", marginTop: 5 },
   empty: { fontSize: 12, color: "#9CA3AF", textAlign: "center", padding: "16px 12px", border: "1px dashed #E5E7EB", borderRadius: RADIUS.sm },
   list: { background: "#fff", borderRadius: RADIUS.lg, overflow: "hidden", boxShadow: SHADOW.sm, border: "1px solid #EEF0F3" },
   listRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: "1px solid #F3F4F6", cursor: "pointer", transition: "background .12s ease" },
@@ -1189,5 +1189,10 @@ const CSS = `
   @media (max-width: 640px) { .board { grid-template-columns: 1fr; } .tab { padding: 8px 12px; } }
 
   .spinner { width: 28px; height: 28px; margin: 0 auto 14px; border: 3px solid rgba(7,22,63,.12); border-top-color: #E0AA3D; border-radius: 50%; animation: spin .8s linear infinite; }
+
+  .colBody { scrollbar-width: thin; scrollbar-color: rgba(15,23,42,.18) transparent; }
+  .colBody::-webkit-scrollbar { width: 6px; }
+  .colBody::-webkit-scrollbar-thumb { background: rgba(15,23,42,.18); border-radius: 999px; }
+  .colBody::-webkit-scrollbar-track { background: transparent; }
   @keyframes spin { to { transform: rotate(360deg); } }
 `;
