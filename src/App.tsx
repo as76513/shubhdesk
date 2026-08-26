@@ -235,8 +235,9 @@ export default function App() {
       <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
         <style>{CSS}</style>
         <div style={{ textAlign: "center", color: "#07163F" }}>
-          <img src={LOGO} alt="ShubhShree" style={{ height: 56, marginBottom: 16 }} />
-          <div>Loading ShubhDesk…</div>
+          <img src={LOGO} alt="ShubhShree" style={{ height: 56, marginBottom: 20, borderRadius: 10 }} />
+          <div className="spinner" />
+          <div style={{ fontSize: 13, fontWeight: 500, color: "#4B5563" }}>Loading ShubhDesk…</div>
         </div>
       </div>
     );
@@ -409,7 +410,7 @@ function Board({ leads, onOpen, nameOf, onMove, canEdit }: {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveLead(null)}>
-      <div style={S.board}>
+      <div className="board">
         {STAGES.map((stage) => {
           const items = leads.filter((l) => l.stage === stage.id);
           return (
@@ -433,7 +434,7 @@ function DroppableColumn({ stage, count, children }: { stage: (typeof STAGES)[nu
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   return (
     <div style={S.column}>
-      <div style={{ ...S.colHeader, borderTopColor: stage.color }}>
+      <div style={{ ...S.colHeader, borderTopColor: stage.color, background: stage.color + "0F" }}>
         <span style={S.colTitle}>{stage.label}</span>
         <span style={S.colCount}>{count}</span>
       </div>
@@ -476,14 +477,15 @@ function LeadCardVisual({ lead, nameOf, draggable, dragging }: {
       className="card"
       style={{
         ...S.card,
+        borderLeftColor: st.color,
         cursor: draggable ? (dragging ? "grabbing" : "grab") : "pointer",
-        ...(dragging ? { boxShadow: "0 10px 24px rgba(0,0,0,.25)" } : {}),
+        ...(dragging ? { boxShadow: "0 14px 32px rgba(15,23,42,.28)", transform: "rotate(-1deg)" } : {}),
       }}
     >
       <div style={S.cardCode}>{lead.clientCode}</div>
       <div style={S.cardTop}>
         <span style={S.cardName}>{lead.client}</span>
-        <span style={{ ...S.serviceTag, background: st.color + "22", color: st.color }}>{lead.service}</span>
+        <span style={{ ...S.serviceTag, background: st.color + "1A", color: st.color }}>{lead.service}</span>
       </div>
       <div style={S.cardValue}>{rupee(lead.value)}</div>
       <div style={S.cardMeta}>
@@ -824,89 +826,118 @@ function NewLeadButton({ onCreate }: { onCreate: (input: any) => Promise<boolean
 }
 
 // ---------- styles ----------
+// A small, consistent set of tokens (shadows, radii) instead of ad hoc
+// values scattered per element — keeps depth/roundness coherent across
+// cards, columns, modals, and the drawer.
+const SHADOW = {
+  xs: "0 1px 2px rgba(15,23,42,.06)",
+  sm: "0 1px 3px rgba(15,23,42,.08)",
+  md: "0 8px 20px rgba(15,23,42,.12)",
+  lg: "0 16px 40px rgba(15,23,42,.20)",
+};
+const RADIUS = { sm: 8, md: 10, lg: 14, pill: 999 };
+
 const S: Record<string, React.CSSProperties> = {
-  app: { fontFamily: "'Inter', system-ui, sans-serif", background: "#F5F4F0", minHeight: "100vh", color: "#0A1230" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", background: "#07163F", color: "#fff", position: "sticky", top: 0, zIndex: 10, borderBottom: "2px solid #E0AA3D" },
+  app: { fontFamily: "'Inter', system-ui, sans-serif", background: "#F6F7F9", minHeight: "100vh", color: "#111827", WebkitFontSmoothing: "antialiased" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#07163F", color: "#fff", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 2px 0 #E0AA3D, 0 4px 16px rgba(7,22,63,.25)" },
   brand: { display: "flex", alignItems: "center", gap: 12 },
-  logoImg: { height: 40, width: 40, borderRadius: 8, objectFit: "cover" },
-  brandName: { fontWeight: 700, fontSize: 16, letterSpacing: ".3px" },
-  brandSub: { fontSize: 11, color: "#C9A75A" },
-  userSwitch: { display: "flex", alignItems: "center", gap: 12 },
-  whoami: { fontSize: 13, color: "#fff", display: "flex", alignItems: "center", gap: 6 },
-  roleTag: { fontSize: 10, fontWeight: 700, background: "#E0AA3D", color: "#07163F", padding: "2px 6px", borderRadius: 5 },
-  body: { padding: 16, maxWidth: 1400, margin: "0 auto" },
-  errorBar: { background: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B", fontSize: 13, padding: "10px 14px", borderRadius: 10, marginBottom: 12 },
-  statBar: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 10, marginBottom: 16 },
-  statCard: { background: "#fff", borderRadius: 12, padding: "12px 16px", boxShadow: "0 1px 3px rgba(0,0,0,.06)" },
-  statValue: { fontSize: 20, fontWeight: 700, color: "#07163F" },
-  statLabel: { fontSize: 11, color: "#6B7280", marginTop: 2 },
-  toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 },
-  tabs: { display: "flex", gap: 4, background: "#E5E7EB", padding: 4, borderRadius: 10 },
-  filters: { display: "flex", gap: 8, alignItems: "center" },
-  board: { display: "flex", gap: 12, overflowX: "auto", paddingBottom: 12 },
-  column: { minWidth: 240, flex: "0 0 240px", background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.05)" },
-  colHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderTop: "3px solid", borderRadius: "12px 12px 0 0" },
-  colTitle: { fontSize: 13, fontWeight: 600 },
-  colCount: { fontSize: 12, background: "#F3F4F6", borderRadius: 20, padding: "1px 8px", color: "#6B7280" },
-  colBody: { padding: 10, display: "flex", flexDirection: "column", gap: 8, minHeight: 60, borderRadius: "0 0 12px 12px", transition: "background .1s" },
-  colBodyDragOver: { background: "#FBF3DC", outline: "2px dashed #E0AA3D", outlineOffset: -4 },
-  card: { background: "#fff", border: "1px solid #E5E7EB", borderRadius: 10, padding: 12, cursor: "pointer" },
-  cardCode: { fontSize: 10, fontWeight: 700, color: "#8A6A1C", letterSpacing: ".5px", marginBottom: 4 },
+  logoImg: { height: 38, width: 38, borderRadius: RADIUS.sm, objectFit: "cover" },
+  brandName: { fontWeight: 700, fontSize: 16, letterSpacing: ".2px" },
+  brandSub: { fontSize: 11, color: "#C9A75A", marginTop: 1 },
+  userSwitch: { display: "flex", alignItems: "center", gap: 14 },
+  whoami: { fontSize: 13, color: "#fff", display: "flex", alignItems: "center", gap: 8 },
+  roleTag: { fontSize: 10, fontWeight: 700, background: "#E0AA3D", color: "#07163F", padding: "3px 8px", borderRadius: RADIUS.pill, letterSpacing: ".4px" },
+  body: { padding: "20px 24px 32px", maxWidth: 1440, margin: "0 auto" },
+  errorBar: { background: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B", fontSize: 13, padding: "12px 16px", borderRadius: RADIUS.md, marginBottom: 16, boxShadow: SHADOW.xs },
+  statBar: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 20 },
+  statCard: { background: "#fff", borderRadius: RADIUS.lg, padding: "14px 18px", boxShadow: SHADOW.xs, border: "1px solid #EEF0F3" },
+  statValue: { fontSize: 22, fontWeight: 700, color: "#07163F", lineHeight: 1.2, letterSpacing: "-.2px" },
+  statLabel: { fontSize: 11, color: "#6B7280", marginTop: 4, fontWeight: 500 },
+  toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 },
+  tabs: { display: "flex", gap: 4, background: "#EBEDF1", padding: 4, borderRadius: RADIUS.md },
+  filters: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
+  column: { background: "#fff", borderRadius: RADIUS.lg, boxShadow: SHADOW.sm, border: "1px solid #EEF0F3", display: "flex", flexDirection: "column", minHeight: 0 },
+  colHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderTop: "3px solid", borderRadius: `${RADIUS.lg}px ${RADIUS.lg}px 0 0` },
+  colTitle: { fontSize: 12.5, fontWeight: 700, letterSpacing: ".1px" },
+  colCount: { fontSize: 11, fontWeight: 600, background: "rgba(15,23,42,.06)", borderRadius: RADIUS.pill, padding: "2px 9px", color: "#4B5563" },
+  colBody: { padding: 10, display: "flex", flexDirection: "column", gap: 8, minHeight: 80, borderRadius: `0 0 ${RADIUS.lg}px ${RADIUS.lg}px`, transition: "background .12s ease" },
+  colBodyDragOver: { background: "#FBF3DC", outline: "2px dashed #E0AA3D", outlineOffset: -6 },
+  card: { background: "#fff", border: "1px solid #EEF0F3", borderLeft: "3px solid transparent", borderRadius: RADIUS.md, padding: "12px 13px", cursor: "pointer", transition: "box-shadow .15s ease, transform .15s ease, border-color .15s ease" },
+  cardCode: { fontSize: 10, fontWeight: 700, color: "#8A6A1C", letterSpacing: ".5px", marginBottom: 5 },
   cardTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
-  cardName: { fontWeight: 600, fontSize: 14 },
-  serviceTag: { fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 6, whiteSpace: "nowrap" },
-  cardValue: { fontSize: 15, fontWeight: 700, marginTop: 6, color: "#07163F" },
-  cardMeta: { display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6B7280", marginTop: 8 },
-  empty: { fontSize: 12, color: "#9CA3AF", textAlign: "center", padding: 12 },
-  list: { background: "#fff", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,.05)" },
-  listRow: { display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderBottom: "1px solid #F3F4F6", cursor: "pointer" },
+  cardName: { fontWeight: 600, fontSize: 14, color: "#111827" },
+  serviceTag: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: RADIUS.sm, whiteSpace: "nowrap" },
+  cardValue: { fontSize: 15, fontWeight: 700, marginTop: 7, color: "#07163F", letterSpacing: "-.1px" },
+  cardMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "#6B7280", marginTop: 9, paddingTop: 9, borderTop: "1px solid #F3F4F6" },
+  empty: { fontSize: 12, color: "#9CA3AF", textAlign: "center", padding: "16px 12px", border: "1px dashed #E5E7EB", borderRadius: RADIUS.sm },
+  list: { background: "#fff", borderRadius: RADIUS.lg, overflow: "hidden", boxShadow: SHADOW.sm, border: "1px solid #EEF0F3" },
+  listRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: "1px solid #F3F4F6", cursor: "pointer", transition: "background .12s ease" },
   rowPhone: { fontSize: 12, color: "#6B7280", marginTop: 2 },
   reqText: { fontSize: 12, color: "#374151", lineHeight: 1.4 },
   dueDate: { fontSize: 12, fontWeight: 700, color: "#B45309" },
-  followBanner: { background: "#FBF3DC", border: "1px solid #EAD9A6", color: "#8A6A1C", fontSize: 13, padding: "10px 14px", borderRadius: 10, marginBottom: 12, lineHeight: 1.4 },
-  stagePill: { color: "#fff", fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, display: "inline-block" },
-  overlay: { position: "fixed", inset: 0, background: "rgba(7,22,63,.5)", display: "flex", justifyContent: "flex-end", zIndex: 50 },
-  drawer: { width: "100%", maxWidth: 460, background: "#F9FAFB", height: "100%", overflowY: "auto", padding: 20, boxShadow: "-4px 0 20px rgba(0,0,0,.15)" },
-  drawerHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 },
-  drawerName: { fontSize: 20, fontWeight: 700 },
-  codeChip: { display: "inline-block", fontSize: 11, fontWeight: 700, color: "#8A6A1C", background: "#FBF3DC", padding: "2px 8px", borderRadius: 6, letterSpacing: ".5px", marginBottom: 6 },
+  followBanner: { background: "#FBF3DC", border: "1px solid #EAD9A6", color: "#8A6A1C", fontSize: 13, padding: "12px 16px", borderRadius: RADIUS.md, marginBottom: 16, lineHeight: 1.4 },
+  stagePill: { color: "#fff", fontSize: 10.5, fontWeight: 700, padding: "4px 11px", borderRadius: RADIUS.pill, display: "inline-block", letterSpacing: ".2px" },
+  overlay: { position: "fixed", inset: 0, background: "rgba(7,22,63,.55)", display: "flex", justifyContent: "flex-end", zIndex: 50, backdropFilter: "blur(1px)" },
+  drawer: { width: "100%", maxWidth: 460, background: "#F9FAFB", height: "100%", overflowY: "auto", padding: 24, boxShadow: SHADOW.lg },
+  drawerHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 },
+  drawerName: { fontSize: 20, fontWeight: 700, letterSpacing: "-.2px" },
+  codeChip: { display: "inline-block", fontSize: 11, fontWeight: 700, color: "#8A6A1C", background: "#FBF3DC", padding: "3px 9px", borderRadius: RADIUS.sm, letterSpacing: ".5px", marginBottom: 7 },
   ownerLine: { fontSize: 12, color: "#6B7280", marginTop: 6 },
-  readonlyBanner: { background: "#FEF3C7", border: "1px solid #FDE68A", color: "#92400E", fontSize: 12, padding: "10px 12px", borderRadius: 8, marginBottom: 18, lineHeight: 1.4 },
-  drawerSection: { marginBottom: 22 },
-  sectionLabel: { fontSize: 12, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 8 },
-  detailRow: { display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid #F0EEE8", gap: 12 },
+  readonlyBanner: { background: "#FEF3C7", border: "1px solid #FDE68A", color: "#92400E", fontSize: 12, padding: "10px 12px", borderRadius: RADIUS.sm, marginBottom: 18, lineHeight: 1.4 },
+  drawerSection: { marginBottom: 24 },
+  sectionLabel: { fontSize: 11.5, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".6px", marginBottom: 9 },
+  detailRow: { display: "flex", justifyContent: "space-between", fontSize: 13, padding: "7px 0", borderBottom: "1px solid #F0EEE8", gap: 12 },
   detailKey: { color: "#6B7280", fontSize: 12, fontWeight: 600, minWidth: 50 },
   hint: { fontSize: 11, color: "#6B7280", marginTop: 8, fontStyle: "italic" },
   stageGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
   notes: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 },
-  note: { background: "#fff", borderRadius: 8, padding: "8px 12px", border: "1px solid #E5E7EB" },
-  sysNote: { background: "#F1F5F9", borderRadius: 8, padding: "6px 12px", borderLeft: "3px solid #94A3B8" },
+  note: { background: "#fff", borderRadius: RADIUS.sm, padding: "9px 12px", border: "1px solid #EEF0F3" },
+  sysNote: { background: "#F1F5F9", borderRadius: RADIUS.sm, padding: "7px 12px", borderLeft: "3px solid #94A3B8" },
   noteText: { fontSize: 13 },
   sysText: { fontSize: 12, color: "#475569", fontWeight: 500 },
   noteMeta: { fontSize: 11, color: "#9CA3AF", marginTop: 4 },
   noteInput: { display: "flex", gap: 8 },
-  modal: { background: "#fff", borderRadius: 14, padding: 20, width: "90%", maxWidth: 380, margin: "auto", display: "flex", flexDirection: "column", gap: 4 },
+  modal: { background: "#fff", borderRadius: RADIUS.lg, padding: 22, width: "90%", maxWidth: 380, margin: "auto", display: "flex", flexDirection: "column", gap: 4, boxShadow: SHADOW.lg },
   mInput: { marginTop: 8 },
   formLabel: { fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4, display: "block" },
   req: { color: "#DC2626" },
-  formError: { fontSize: 12, color: "#991B1B", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, padding: "8px 10px", marginTop: 10 },
+  formError: { fontSize: 12, color: "#991B1B", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: RADIUS.sm, padding: "8px 10px", marginTop: 10 },
 };
 
 const CSS = `
   * { box-sizing: border-box; }
-  .tab { border: none; background: transparent; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #6B7280; cursor: pointer; }
-  .tab.active { background: #fff; color: #07163F; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
-  .sel { padding: 8px 12px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 13px; background: #fff; color: #111827; cursor: pointer; }
-  .primary { background: #E0AA3D; color: #07163F; border: none; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; }
+  ::selection { background: rgba(224,170,61,.35); }
+  .tab { border: none; background: transparent; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #6B7280; cursor: pointer; transition: background .12s ease, color .12s ease; }
+  .tab:hover { color: #07163F; }
+  .tab.active { background: #fff; color: #07163F; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+  .sel, .ninput { padding: 9px 12px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 13px; background: #fff; color: #111827; transition: border-color .12s ease, box-shadow .12s ease; }
+  .sel { cursor: pointer; }
+  .sel:hover, .ninput:hover { border-color: #B8BFC9; }
+  .sel:focus, .ninput:focus { outline: none; border-color: #E0AA3D; box-shadow: 0 0 0 3px rgba(224,170,61,.18); }
+  .primary { background: #E0AA3D; color: #07163F; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: background .12s ease, transform .08s ease; }
   .primary:hover { background: #C9902A; }
-  .ghost { background: #fff; border: 1px solid #D1D5DB; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; }
-  .ghost.sm { padding: 6px 12px; font-size: 12px; }
+  .primary:active { transform: translateY(1px); }
+  .primary:disabled { cursor: not-allowed; }
+  .ghost { background: #fff; border: 1px solid #D1D5DB; padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: border-color .12s ease, background .12s ease, transform .08s ease; }
+  .ghost:hover { border-color: #07163F; background: #FAFAFB; }
+  .ghost:active { transform: translateY(1px); }
+  .ghost.sm { padding: 7px 12px; font-size: 12px; }
   .linkbtn { background: none; border: none; color: #991B1B; font-weight: 700; text-decoration: underline; cursor: pointer; font-size: 13px; }
-  .card:hover { border-color: #E0AA3D; box-shadow: 0 2px 8px rgba(224,170,61,.20); }
-  .row:hover { background: #FAF7EF; }
-  .xbtn { border: none; background: #E5E7EB; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-  .stagebtn { border: 1.5px solid; padding: 8px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; }
-  .ninput { flex: 1; padding: 9px 12px; border: 1px solid #D1D5DB; border-radius: 8px; font-size: 13px; width: 100%; }
-  .addbtn { background: #07163F; color: #fff; border: none; padding: 0 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; }
-  @media (max-width: 640px) { .tab { padding: 8px 12px; } }
+  .card:hover { border-color: #E0AA3D; box-shadow: 0 6px 16px rgba(15,23,42,.10); transform: translateY(-1px); }
+  .card:active { transform: translateY(0); }
+  .row:hover { background: #FAFAFB; }
+  .xbtn { border: none; background: #EBEDF1; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: background .12s ease; }
+  .xbtn:hover { background: #E0AA3D; color: #07163F; }
+  .stagebtn { border: 1.5px solid; padding: 9px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; transition: transform .08s ease, box-shadow .12s ease; }
+  .stagebtn:hover { box-shadow: 0 2px 8px rgba(15,23,42,.08); }
+  .addbtn { background: #07163F; color: #fff; border: none; padding: 0 18px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: background .12s ease; }
+  .addbtn:hover { background: #0F1F52; }
+  button:focus-visible, .ninput:focus-visible, .sel:focus-visible { outline: 2px solid #E0AA3D; outline-offset: 2px; }
+
+  .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  @media (max-width: 1180px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .board { grid-template-columns: 1fr; } .tab { padding: 8px 12px; } }
+
+  .spinner { width: 28px; height: 28px; margin: 0 auto 14px; border: 3px solid rgba(7,22,63,.12); border-top-color: #E0AA3D; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 `;
