@@ -180,6 +180,16 @@ export default function App() {
     };
   }, [visibleLeads]);
 
+  // Total brokerage across all trades logged today. Only meaningful for
+  // admin (the only non-dealer role with Trade visibility) -- sales/rm
+  // never load trades, so this stays 0 and is simply not shown for them.
+  const todayBrokerage = useMemo(() => {
+    const today = todayISO();
+    return trades
+      .filter((t) => (t.createdAt ?? "").slice(0, 10) === today)
+      .reduce((s, t) => s + (t.brokerage ?? 0), 0);
+  }, [trades]);
+
   function canEdit(lead: Lead) {
     if (!me) return false;
     if (me.role === "admin") return true;
@@ -335,7 +345,7 @@ export default function App() {
           </div>
         )}
 
-        <StatBar stats={stats} />
+        <StatBar stats={stats} totalBrokerage={me?.role === "admin" ? todayBrokerage : undefined} />
 
         <div style={S.toolbar}>
           <div style={S.tabs}>
@@ -452,13 +462,15 @@ function Header({ me }: { me: { displayName: string; role: Role } | null }) {
   );
 }
 
-function StatBar({ stats }: { stats: any }) {
+function StatBar({ stats, totalBrokerage }: { stats: any; totalBrokerage?: number }) {
   const items = [
     { label: "Total Leads", value: stats.total },
     { label: "Active", value: stats.active },
     { label: "Closed Won", value: stats.closed },
     { label: "Pipeline Value", value: rupee(stats.pipelineValue) },
-    { label: "Won Value", value: rupee(stats.wonValue) },
+    totalBrokerage != null
+      ? { label: "Total Brokerage (Today)", value: rupee(totalBrokerage) }
+      : { label: "Won Value", value: rupee(stats.wonValue) },
   ];
   return (
     <div style={S.statBar}>
