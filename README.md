@@ -69,9 +69,10 @@ generic dropdown — "→ Proceed to Meeting" or "✕ Client Rejected" — so
 that outcome is a visible decision point, not just one option buried in
 a grid of every stage. Rejected is also reachable from any later stage
 (a deal can fall through after a meeting too), via the full stage grid
-below that choice. Rejecting (from anywhere) prompts for an optional,
+below that choice. Rejecting (from anywhere) requires picking a
 one-click **reason** (Not Interested / Chose Competitor / Budget / Bad
-Timing / Other, or Skip) — feeds the win-back follow-up decision later.
+Timing / Other) — no skipping — which feeds the win-back follow-up
+decision later.
 
 Every new lead also gets a **source** (Cold Call / Referral / Walk-in /
 Existing Client / Digital / Other) — a single dropdown defaulting to
