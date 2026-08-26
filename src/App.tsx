@@ -55,6 +55,7 @@ export default function App() {
   const [view, setView] = useState<"board" | "list" | "followups">("board");
   const [selected, setSelected] = useState<Lead | null>(null);
   const [filterService, setFilterService] = useState("All");
+  const [handoffPrompt, setHandoffPrompt] = useState<{ lead: Lead; targetStage: string } | null>(null);
 
   // Resolve a username to a display name via the staff directory.
   const nameOf = useCallback(
@@ -127,6 +128,24 @@ export default function App() {
     if (!me) return false;
     if (me.role === "admin") return true;
     return lead.owner === me.username;
+  }
+
+  // Move a lead to a stage, routing through the RM-handoff prompt when
+  // needed. Shared by the drawer's "Move to stage" buttons and the
+  // board's drag-and-drop, so the handoff logic lives in one place.
+  function requestMove(lead: Lead, targetStage: string) {
+    if (!canEdit(lead) || targetStage === lead.stage) return;
+    if (targetStage === "meeting" && SALES_STAGES.includes(lead.stage ?? "")) {
+      setHandoffPrompt({ lead, targetStage });
+      return;
+    }
+    handleMove(lead, targetStage);
+  }
+
+  function confirmHandoff(rmUsername: string) {
+    if (!handoffPrompt) return;
+    handleMove(handoffPrompt.lead, handoffPrompt.targetStage, rmUsername);
+    setHandoffPrompt(null);
   }
 
   // ---- actions (optimistic where safe, then refetch) ----
@@ -215,7 +234,7 @@ export default function App() {
         </div>
 
         {view === "board" ? (
-          <Board leads={visibleLeads} onOpen={setSelected} nameOf={nameOf} />
+          <Board leads={visibleLeads} onOpen={setSelected} nameOf={nameOf} onMove={requestMove} canEdit={canEdit} />
         ) : view === "followups" ? (
           <FollowUpView leads={dueLeads} onOpen={setSelected} />
         ) : (
@@ -227,13 +246,31 @@ export default function App() {
         <LeadDrawer
           lead={selected}
           onClose={() => setSelected(null)}
-          onMove={handleMove}
+          onMove={requestMove}
           onNote={handleNote}
           onFollowUp={handleFollowUp}
           canEdit={canEdit(selected)}
           nameOf={nameOf}
-          rms={rms}
         />
+      )}
+
+      {handoffPrompt && (
+        <div style={S.overlay} onClick={() => setHandoffPrompt(null)}>
+          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={S.drawerName}>Hand off to RM</div>
+            <div style={S.hint}>Pick the Relationship Manager who'll take this meeting. Ownership transfers to them.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+              {rms.length === 0 && <div style={S.empty}>No RMs found. Add RM staff profiles first.</div>}
+              {rms.map((rm) => (
+                <button key={rm.username} className="ghost" style={{ textAlign: "left" }}
+                  onClick={() => confirmHandoff(rm.username)}>
+                  {rm.displayName}
+                </button>
+              ))}
+            </div>
+            <button className="ghost" style={{ marginTop: 12 }} onClick={() => setHandoffPrompt(null)}>Cancel</button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -283,7 +320,24 @@ function StatBar({ stats }: { stats: any }) {
   );
 }
 
-function Board({ leads, onOpen, nameOf }: { leads: Lead[]; onOpen: (l: Lead) => void; nameOf: (u?: string | null) => string }) {
+function Board({ leads, onOpen, nameOf, onMove, canEdit }: {
+  leads: Lead[];
+  onOpen: (l: Lead) => void;
+  nameOf: (u?: string | null) => string;
+  onMove: (lead: Lead, stage: string) => void;
+  canEdit: (lead: Lead) => boolean;
+}) {
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+
+  function handleDrop(e: React.DragEvent, targetStageId: string) {
+    e.preventDefault();
+    setDragOverStage(null);
+    const leadId = e.dataTransfer.getData("text/plain");
+    const lead = leads.find((l) => l.id === leadId);
+    if (!lead) return;
+    onMove(lead, targetStageId);
+  }
+
   return (
     <div style={S.board}>
       {STAGES.map((stage) => {
@@ -294,8 +348,15 @@ function Board({ leads, onOpen, nameOf }: { leads: Lead[]; onOpen: (l: Lead) => 
               <span style={S.colTitle}>{stage.label}</span>
               <span style={S.colCount}>{items.length}</span>
             </div>
-            <div style={S.colBody}>
-              {items.map((l) => <LeadCard key={l.id} lead={l} onOpen={onOpen} nameOf={nameOf} />)}
+            <div
+              style={{ ...S.colBody, ...(dragOverStage === stage.id ? S.colBodyDragOver : {}) }}
+              onDragOver={(e) => { e.preventDefault(); setDragOverStage(stage.id); }}
+              onDragLeave={() => setDragOverStage((s) => (s === stage.id ? null : s))}
+              onDrop={(e) => handleDrop(e, stage.id)}
+            >
+              {items.map((l) => (
+                <LeadCard key={l.id} lead={l} onOpen={onOpen} nameOf={nameOf} draggable={canEdit(l)} />
+              ))}
               {items.length === 0 && <div style={S.empty}>No leads</div>}
             </div>
           </div>
@@ -305,10 +366,21 @@ function Board({ leads, onOpen, nameOf }: { leads: Lead[]; onOpen: (l: Lead) => 
   );
 }
 
-function LeadCard({ lead, onOpen, nameOf }: { lead: Lead; onOpen: (l: Lead) => void; nameOf: (u?: string | null) => string }) {
+function LeadCard({ lead, onOpen, nameOf, draggable }: {
+  lead: Lead;
+  onOpen: (l: Lead) => void;
+  nameOf: (u?: string | null) => string;
+  draggable?: boolean;
+}) {
   const st = stageOf(lead.stage);
   return (
-    <div className="card" style={S.card} onClick={() => onOpen(lead)}>
+    <div
+      className="card"
+      style={{ ...S.card, cursor: draggable ? "grab" : "pointer" }}
+      draggable={draggable}
+      onDragStart={(e) => { e.dataTransfer.setData("text/plain", lead.id); e.dataTransfer.effectAllowed = "move"; }}
+      onClick={() => onOpen(lead)}
+    >
       <div style={S.cardCode}>{lead.clientCode}</div>
       <div style={S.cardTop}>
         <span style={S.cardName}>{lead.client}</span>
@@ -373,19 +445,17 @@ function FollowUpView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => v
 }
 
 function LeadDrawer({
-  lead, onClose, onMove, onNote, onFollowUp, canEdit, nameOf, rms,
+  lead, onClose, onMove, onNote, onFollowUp, canEdit, nameOf,
 }: {
   lead: Lead;
   onClose: () => void;
-  onMove: (lead: Lead, stage: string, rm?: string) => void;
+  onMove: (lead: Lead, stage: string) => void;
   onNote: (leadId: string, text: string) => void;
   onFollowUp: (leadId: string, date: string) => void;
   canEdit: boolean;
   nameOf: (u?: string | null) => string;
-  rms: Staff[];
 }) {
   const [noteText, setNoteText] = useState("");
-  const [handoffFor, setHandoffFor] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
   const st = stageOf(lead.stage);
@@ -403,10 +473,6 @@ function LeadDrawer({
 
   function handleStageClick(targetStage: string) {
     if (!canEdit) return;
-    if (targetStage === "meeting" && SALES_STAGES.includes(lead.stage ?? "")) {
-      setHandoffFor(targetStage);
-      return;
-    }
     onMove(lead, targetStage);
   }
 
@@ -466,6 +532,21 @@ function LeadDrawer({
           <div style={S.hint}>Set a date to revisit this client (e.g. 6 months out) — appears in "Follow-ups Due".</div>
         </div>
 
+        {canEdit && lead.stage === "contacted" && (
+          <div style={S.drawerSection}>
+            <div style={S.sectionLabel}>Did the client want to proceed?</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="primary" style={{ flex: 1 }} onClick={() => handleStageClick("meeting")}>
+                → Proceed to Meeting
+              </button>
+              <button className="ghost" style={{ flex: 1, borderColor: "#DC2626", color: "#DC2626" }} onClick={() => handleStageClick("rejected")}>
+                ✕ Client Rejected
+              </button>
+            </div>
+            <div style={S.hint}>Proceeding hands the lead to an RM. Rejecting records it as a lost lead under "Deal Rejected" — you can still set a win-back follow-up date below.</div>
+          </div>
+        )}
+
         {canEdit && (
           <div style={S.drawerSection}>
             <div style={S.sectionLabel}>Move to stage</div>
@@ -514,25 +595,6 @@ function LeadDrawer({
           )}
         </div>
       </div>
-
-      {handoffFor && (
-        <div style={S.overlay} onClick={() => setHandoffFor(null)}>
-          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
-            <div style={S.drawerName}>Hand off to RM</div>
-            <div style={S.hint}>Pick the Relationship Manager who'll take this meeting. Ownership transfers to them.</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-              {rms.length === 0 && <div style={S.empty}>No RMs found. Add RM staff profiles first.</div>}
-              {rms.map((rm) => (
-                <button key={rm.username} className="ghost" style={{ textAlign: "left" }}
-                  onClick={() => { onMove(lead, "meeting", rm.username); setHandoffFor(null); }}>
-                  {rm.displayName}
-                </button>
-              ))}
-            </div>
-            <button className="ghost" style={{ marginTop: 12 }} onClick={() => setHandoffFor(null)}>Cancel</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -678,7 +740,8 @@ const S: Record<string, React.CSSProperties> = {
   colHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderTop: "3px solid", borderRadius: "12px 12px 0 0" },
   colTitle: { fontSize: 13, fontWeight: 600 },
   colCount: { fontSize: 12, background: "#F3F4F6", borderRadius: 20, padding: "1px 8px", color: "#6B7280" },
-  colBody: { padding: 10, display: "flex", flexDirection: "column", gap: 8, minHeight: 60 },
+  colBody: { padding: 10, display: "flex", flexDirection: "column", gap: 8, minHeight: 60, borderRadius: "0 0 12px 12px", transition: "background .1s" },
+  colBodyDragOver: { background: "#FBF3DC", outline: "2px dashed #E0AA3D", outlineOffset: -4 },
   card: { background: "#fff", border: "1px solid #E5E7EB", borderRadius: 10, padding: 12, cursor: "pointer" },
   cardCode: { fontSize: 10, fontWeight: 700, color: "#8A6A1C", letterSpacing: ".5px", marginBottom: 4 },
   cardTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
