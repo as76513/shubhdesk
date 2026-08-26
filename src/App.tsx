@@ -131,7 +131,9 @@ export default function App() {
         const meInfo = await getMe();
         setMe(meInfo);
         if (meInfo.role === "dealer") {
-          setTrades(await listTrades());
+          const [tr, st] = await Promise.all([listTrades(), listStaff()]);
+          setTrades(tr);
+          setStaff(st);
         } else {
           const [ls, st, rmList] = await Promise.all([listLeads(), listStaff(), listRMs()]);
           setLeads(ls);
@@ -308,6 +310,7 @@ export default function App() {
           )}
           <TradesView
             trades={trades}
+            nameOf={nameOf}
             onCreate={handleCreateTrade}
             onUpdate={handleUpdateTrade}
             onDelete={handleDeleteTrade}
@@ -364,6 +367,7 @@ export default function App() {
         ) : view === "trades" ? (
           <TradesView
             trades={trades}
+            nameOf={nameOf}
             onCreate={handleCreateTrade}
             onUpdate={handleUpdateTrade}
             onDelete={handleDeleteTrade}
@@ -803,8 +807,9 @@ function Field({ label, required, children }: { label: string; required?: boolea
   );
 }
 
-function TradesView({ trades, onCreate, onUpdate, onDelete }: {
+function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
   trades: Trade[];
+  nameOf: (u?: string | null) => string;
   onCreate: (input: { clientName: string; buyingLot?: string; brokerage?: number }) => Promise<boolean>;
   onUpdate: (input: { id: string; clientName: string; buyingLot?: string; brokerage?: number }) => Promise<boolean>;
   onDelete: (id: string) => void;
@@ -822,6 +827,25 @@ function TradesView({ trades, onCreate, onUpdate, onDelete }: {
     downloadCSV(`shubhdesk-trades-${downloadDate}.csv`, csv);
   }
 
+  const dayTrades = useMemo(
+    () => trades.filter((t) => (t.createdAt ?? "").slice(0, 10) === downloadDate),
+    [trades, downloadDate]
+  );
+  const totalBrokerage = dayTrades.reduce((s, t) => s + (t.brokerage ?? 0), 0);
+  const byDealer = useMemo(() => {
+    const map = new Map<string, { count: number; total: number }>();
+    dayTrades.forEach((t) => {
+      const key = t.owner ?? "unknown";
+      const cur = map.get(key) ?? { count: 0, total: 0 };
+      cur.count += 1;
+      cur.total += t.brokerage ?? 0;
+      map.set(key, cur);
+    });
+    return Array.from(map.entries())
+      .map(([owner, v]) => ({ owner, ...v }))
+      .sort((a, b) => b.total - a.total);
+  }, [dayTrades]);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
@@ -829,6 +853,38 @@ function TradesView({ trades, onCreate, onUpdate, onDelete }: {
         <button className="ghost" onClick={download}>⬇ Download Day's Trades</button>
         <button className="primary" onClick={() => setEditing("new")}>+ New Trade</button>
       </div>
+
+      <div style={{ ...S.statBar, marginBottom: 16 }}>
+        <div style={S.statCard}>
+          <div style={S.statValue}>{rupee(totalBrokerage)}</div>
+          <div style={S.statLabel}>Total Brokerage — {downloadDate}</div>
+        </div>
+        <div style={S.statCard}>
+          <div style={S.statValue}>{dayTrades.length}</div>
+          <div style={S.statLabel}>Trades — {downloadDate}</div>
+        </div>
+      </div>
+
+      <div style={S.drawerSection}>
+        <div style={S.sectionLabel}>Dealer Brokerage — {downloadDate}</div>
+        <div style={S.list}>
+          <div style={{ ...S.listRow, cursor: "default" }}>
+            <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Dealer</div>
+            <div style={{ flex: 1, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Trades</div>
+            <div style={{ flex: 1, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Brokerage</div>
+          </div>
+          {byDealer.map((d) => (
+            <div key={d.owner} style={{ ...S.listRow, cursor: "default" }}>
+              <div style={{ flex: 2, fontWeight: 600 }}>{nameOf(d.owner)}</div>
+              <div style={{ flex: 1, textAlign: "right" }}>{d.count}</div>
+              <div style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(d.total)}</div>
+            </div>
+          ))}
+          {byDealer.length === 0 && <div style={S.empty}>No trades logged on this date.</div>}
+        </div>
+      </div>
+
+      <div style={S.sectionLabel}>All Trades</div>
       <div style={S.list}>
         <div style={{ ...S.listRow, cursor: "default" }}>
           <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Date</div>

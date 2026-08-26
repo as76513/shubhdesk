@@ -14,7 +14,7 @@ The trade-off: DynamoDB doesn't do ad-hoc joins or arbitrary `WHERE` filtering e
 
 ## One table per model, not one table per record
 
-Amplify Data maps each `a.model()` to its own DynamoDB table. Four models → four tables (times two, once per deployed environment — sandbox and production each get their own full set):
+Amplify Data maps each `a.model()` to its own DynamoDB table. Five models → five tables (times two, once per deployed environment — sandbox and production each get their own full set):
 
 | Model | Table role | Partition key |
 |---|---|---|
@@ -22,6 +22,7 @@ Amplify Data maps each `a.model()` to its own DynamoDB table. Four models → fo
 | `Note` | one item per activity-log entry | `id` (auto UUID) |
 | `StaffProfile` | one item per employee | `id` (auto UUID) |
 | `Counter` | one item per calendar month (`YYMM`) | `period` (custom key, via `.identifier(['period'])`) |
+| `Trade` | one item per dealer trade log entry | `id` (auto UUID) |
 
 Every lead ever created lives as a separate **item** inside the single `Lead` table — the table doesn't grow in count, the item count inside it does.
 
@@ -30,6 +31,7 @@ Every lead ever created lives as a separate **item** inside the single `Lead` ta
 - `Note.leadId` + `Note.lead = a.belongsTo('Lead', 'leadId')`, mirrored by `Lead.notes = a.hasMany('Note', 'leadId')`.
 - This is the only real relationship in the schema. Amplify auto-creates a secondary index on `Note.leadId` to back it, so "all notes for this lead" (`listNotes(leadId)` in `src/leadClient.ts`) is an efficient indexed query, not a table scan.
 - Nothing else references anything else — `StaffProfile.username` and `Lead.owner`/`sourcedBy` are plain strings matched against the Cognito identity at the authorization layer, not a foreign key DynamoDB itself enforces.
+- `Trade` deliberately has **no** relationship to `Lead`, even though both ultimately trace back to a client — this was an explicit design choice (dealers work standalone from the sales pipeline), not an oversight. If that ever needs to change (e.g., linking a trade back to the lead that generated it), that's a new `leadId` field + `@belongsTo`/`@hasMany` pair, same pattern as `Note`.
 
 ## Access patterns (what the app actually queries)
 
@@ -43,10 +45,11 @@ Every read the app does, and whether it's an efficient indexed `Query` or a `Sca
 | `listRMs()` | `StaffProfile` where `role = 'rm'` | Scan + filter — no index on `role` |
 | `listStaff()` | all staff | Scan (whole table) |
 | `nextClientCode()` | get/update the `Counter` row for the current `period` | **Query/Get** by primary key — efficient by design |
+| `listTrades()` (`src/tradeClient.ts`) | trades the caller owns, or all trades for admin (role filtering is server-side via the `Trade` auth rule, same as Lead) | Scan (whole table, auth-filtered per item) |
 
 The two scan-and-filter patterns (`followUpOn`, `role`) are fine today: `StaffProfile` will only ever hold a handful of rows (team size), and `Lead` volume for a ~10-person team's pipeline is small. If lead volume ever grows into the thousands, the fix is a **GSI** on `followUpOn` (and possibly `stage`) so `listFollowUpsDue` becomes an indexed query instead of a full scan — not a schema rewrite, just an added index.
 
-**Not every new feature needs a new query.** The admin employee report (`src/report.ts`) needed leads-per-employee, deals-closed-per-employee, and a pipeline breakdown — all of that is computed client-side from the `leads`/`staff` arrays `App.tsx` already has in state from `listLeads()`/`listStaff()`, with zero new backend calls. Reach for a new query (and think about whether it needs an index) only when the data isn't already loaded on the page doing the aggregating.
+**Not every new feature needs a new query.** The admin employee report (`src/report.ts`) needed leads-per-employee, deals-closed-per-employee, and a pipeline breakdown — all of that is computed client-side from the `leads`/`staff` arrays `App.tsx` already has in state from `listLeads()`/`listStaff()`, with zero new backend calls. Reach for a new query (and think about whether it needs an index) only when the data isn't already loaded on the page doing the aggregating. The Dealer Brokerage summary (per-day total + per-dealer breakdown in `TradesView`) is the same idea applied to `Trade`: it's a `useMemo` over whatever `listTrades()` already returned, not a new backend aggregation query.
 
 ## Authorization is part of the schema design, not bolted on after
 
@@ -56,6 +59,7 @@ Each model's `.authorization((allow) => [...])` block *is* the access-pattern de
 - **`StaffProfile`**: `allow.group('admin')` for writes, `allow.authenticated().to(['read'])` for everyone (needed to resolve display names and populate the RM dropdown).
 - **`Counter`**: `allow.group('admin')` for writes, `allow.authenticated().to(['read','create','update'])` for everyone (any staff member creating a lead needs to bump the sequence).
 - **`Note`**: `allow.group('admin')` + `allow.authenticated().to(['read','create'])` (notes are cheap and shared; the sensitive control point is `Lead`, not `Note`).
+- **`Trade`**: `allow.group('admin')` + `allow.ownerDefinedIn('owner')` — no group-level read for anyone else, unlike `Lead`'s `rm` read rule. A dealer's trades are private to them and admin; there's no equivalent of RMs "seeing incoming handoffs" here because there's no handoff into `Trade` at all.
 
 This is why `owner` and `sourcedBy` exist as plain string fields on `Lead` rather than being derived at query time — DynamoDB/AppSync's owner-based auth rules need the identity baked into the item itself to check against on every read/write.
 

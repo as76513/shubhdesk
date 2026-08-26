@@ -99,13 +99,31 @@ with clients who didn't convert the first time.
 
 ---
 
+## Dealer trade log
+
+**Dealer is a separate, standalone role** — it has nothing to do with
+the Lead pipeline above. A Dealer's entire screen is a simple log of
+trades: **Client Name, Buying Lot, Brokerage**, no stages, no board.
+A dealer sees and manages only their own trades.
+
+Admins get an extra **Trades** tab (alongside the pipeline views)
+showing every dealer's trades, with:
+- A date picker (defaults to today) and a **"⬇ Download Day's
+  Trades"** CSV export (Date, Client Name, Buying Lot, Brokerage).
+- A **Dealer Brokerage** summary for that date — total brokerage
+  earned, total trade count, and a per-dealer breakdown — so you can
+  see at a glance who earned what on a given day.
+
+---
+
 ## Roles
 
-| Role  | Sees | Can do |
-|-------|------|--------|
-| sales | own + sourced leads | create leads, hand off to RM from New |
-| rm    | all leads (read); owned leads (write) | take handoffs, run Meeting→Closed, win-back list |
-| admin | everything | full control, including the employee activity report |
+| Role   | Sees | Can do |
+|--------|------|--------|
+| sales  | own + sourced leads | create leads, hand off to RM from New |
+| rm     | all leads (read); owned leads (write) | take handoffs, run Meeting→Closed, win-back list |
+| dealer | own trades only | log/edit/delete their own trades |
+| admin  | everything | full control, including the employee activity report and all dealer trades |
 
 All of this is enforced **server-side**, not just hidden in the UI — the
 auth rules in `amplify/data/resource.ts` (`allow.ownerDefinedIn('owner')`,
