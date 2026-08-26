@@ -78,9 +78,12 @@ a rejected lead's card (once a lead is dead, why it died is more
 useful than who owns it).
 
 The **Activity Log** in the drawer states each transition explicitly
-("Moved from New Lead to Meeting / Consultation", "Handed off to
-Anita by Amol") so the pipeline path is readable from the log text
-alone, without needing to cross-reference dates or entry order.
+("Moved from new to meeting", "Handed off to Anita by Amol
+(new → meeting)") so the pipeline path is readable from the log text
+alone, without needing to cross-reference dates or entry order. Only
+notes written from this point on look like this — older entries may
+still show raw IDs, since it's stored text and can't be fixed up
+after the fact.
 
 Every new lead also gets a **source** (Cold Call / Referral / Walk-in /
 Existing Client / Digital / Other) — a single dropdown defaulting to

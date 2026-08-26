@@ -226,7 +226,7 @@ export default function App() {
   // ---- actions (optimistic where safe, then refetch) ----
   async function handleMove(lead: Lead, newStage: string, rmUsername?: string, rejectionReason?: string) {
     try {
-      await apiMoveStage(lead, newStage, rmUsername, rejectionReason, nameOf, (id) => stageOf(id).label);
+      await apiMoveStage(lead, newStage, rmUsername, rejectionReason);
       await refresh();
       setSelected((s) => (s && s.id === lead.id
         ? { ...s, stage: newStage as Lead["stage"], owner: rmUsername ?? s.owner, rejectionReason: (rejectionReason as Lead["rejectionReason"]) ?? s.rejectionReason }
@@ -589,8 +589,8 @@ function LeadCardVisual({ lead, nameOf, draggable, dragging }: {
         <span style={S.cardValue}>{rupee(lead.value)}</span>
       </div>
       <div style={S.cardMeta}>
-        <span style={{ ...S.serviceTag, background: st.color + "1A", color: st.color }}>{lead.service}</span>
-        <span>
+        <span style={{ ...S.serviceTag, background: st.color + "1A", color: st.color, flexShrink: 0 }}>{lead.service}</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, marginLeft: 6 }}>
           {lead.stage === "rejected" && lead.rejectionReason
             ? reasonOf(lead.rejectionReason)
             : nameOf(lead.owner).split(" ")[0]}
@@ -725,7 +725,7 @@ function LeadDrawer({
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ ...S.stagePill, background: st.color, fontSize: 14, padding: "6px 14px" }}>{st.label}</span>
             {lead.stage === "rejected" && lead.rejectionReason && (
-              <span style={{ ...S.stagePill, background: "#FEE2E2", color: "#991B1B", fontSize: 12.5, padding: "5px 12px" }}>
+              <span style={{ ...S.stagePill, background: "#FEF2F2", color: "#991B1B", fontSize: 12.5, padding: "5px 12px" }}>
                 ✕ {reasonOf(lead.rejectionReason)}
               </span>
             )}

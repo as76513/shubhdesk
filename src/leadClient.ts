@@ -199,13 +199,11 @@ export async function moveStage(
   lead: Schema['Lead']['type'],
   newStage: string,
   rmUsername?: string,
-  rejectionReason?: string,
-  nameOf?: (u?: string | null) => string,
-  stageLabelOf?: (id: string) => string
+  rejectionReason?: string
 ) {
   const me = await getCurrentUser();
   const isHandoff =
-    newStage === 'meeting' && SALES_STAGES.includes(lead.stage ?? '') && rmUsername;
+    newStage === 'meeting' && SALES_STAGES.includes(lead.stage ?? '') && !!rmUsername;
 
   const update: Record<string, unknown> = { id: lead.id, stage: newStage };
   if (isHandoff) update.owner = rmUsername;
@@ -214,22 +212,23 @@ export async function moveStage(
   const { data, errors } = await client.models.Lead.update(update as any);
   if (errors) throw errors;
 
-  // Write the matching activity-log entry. Resolve to display names (via
-  // the staff directory) rather than baking raw Cognito usernames into
-  // the note text, which can't be fixed up later since it's free text.
-  // Includes the "from" stage too, so each entry states its own
-  // transition and the pipeline path is readable without needing to
-  // cross-reference surrounding entries or dates.
-  const resolve = (u: string) => (nameOf ? nameOf(u) : u);
-  const label = (id: string) => (stageLabelOf ? stageLabelOf(id) : id);
-  const fromLabel = label(lead.stage ?? '');
-  const toLabel = label(newStage);
+  // Write the matching activity-log entry. People's names are resolved
+  // with a fresh staff-directory lookup right here (not a resolver
+  // passed in by the caller) so this never shows a stale/wrong name --
+  // e.g. an RM whose StaffProfile was auto-created moments ago in
+  // another tab still resolves correctly. Stage ids are used as-is
+  // (not looked up against App.tsx's STAGES labels) so a legacy or
+  // unrecognized stage id shows honestly rather than silently
+  // falling back to a plausible-but-wrong label like "New Lead".
+  const staff = await listStaff();
+  const nameOf = (username: string) => staff.find((s) => s.username === username)?.displayName ?? username;
+  const fromStage = lead.stage ?? '(none)';
   const reasonLabel = rejectionReason ? REJECTION_REASON_LABELS[rejectionReason] : undefined;
   await addNote(
     lead.id,
     isHandoff
-      ? `Handed off to ${resolve(rmUsername!)} by ${resolve(me.username)} (${fromLabel} → ${toLabel})`
-      : `Moved from ${fromLabel} to ${toLabel}${reasonLabel ? ` (Reason: ${reasonLabel})` : ''}`,
+      ? `Handed off to ${nameOf(rmUsername!)} by ${nameOf(me.username)} (${fromStage} → ${newStage})`
+      : `Moved from ${fromStage} to ${newStage}${reasonLabel ? ` (Reason: ${reasonLabel})` : ''}`,
     'system'
   );
 
