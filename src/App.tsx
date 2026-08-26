@@ -40,8 +40,6 @@ type Staff = Schema["StaffProfile"]["type"];
 
 const STAGES = [
   { id: "new", label: "New Lead", color: "#6B7280" },
-  { id: "calling", label: "Calling", color: "#0EA5E9" },
-  { id: "contacted", label: "Contacted", color: "#3B82F6" },
   { id: "meeting", label: "Meeting / Consultation", color: "#8B5CF6" },
   { id: "followup", label: "Follow-up", color: "#F59E0B" },
   { id: "inprogress", label: "Deal In Progress", color: "#EAB308" },
@@ -49,7 +47,7 @@ const STAGES = [
   { id: "rejected", label: "Deal Rejected", color: "#DC2626" },
 ];
 const SERVICES = ["Trading", "SIP", "Insurance", "Loans"] as const;
-const SALES_STAGES = ["new", "calling", "contacted"];
+const SALES_STAGES = ["new"];
 
 const SOURCES = [
   { id: "cold_call", label: "Cold Call" },
@@ -637,7 +635,7 @@ function LeadDrawer({
           <div style={S.hint}>Set a date to revisit this client (e.g. 6 months out) — appears in "Follow-ups Due".</div>
         </div>
 
-        {canEdit && lead.stage === "contacted" && (
+        {canEdit && lead.stage === "new" && (
           <div style={S.drawerSection}>
             <div style={S.sectionLabel}>Did the client want to proceed?</div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -934,8 +932,8 @@ const CSS = `
   .addbtn:hover { background: #0F1F52; }
   button:focus-visible, .ninput:focus-visible, .sel:focus-visible { outline: 2px solid #E0AA3D; outline-offset: 2px; }
 
-  .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
-  @media (max-width: 1180px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  @media (max-width: 1000px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 640px) { .board { grid-template-columns: 1fr; } .tab { padding: 8px 12px; } }
 
   .spinner { width: 28px; height: 28px; margin: 0 auto 14px; border: 3px solid rgba(7,22,63,.12); border-top-color: #E0AA3D; border-radius: 50%; animation: spin .8s linear infinite; }

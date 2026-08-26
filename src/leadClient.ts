@@ -13,8 +13,8 @@ import type { Schema } from '../amplify/data/resource';
 
 const client = generateClient<Schema>();
 
-// Stages owned by sales, mirroring the prototype constant.
-const SALES_STAGES = ['new', 'calling', 'contacted'];
+// Stages owned by sales, mirroring the STAGES constant in App.tsx.
+const SALES_STAGES = ['new'];
 
 export type Role = 'admin' | 'rm' | 'sales';
 

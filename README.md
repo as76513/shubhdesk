@@ -61,10 +61,10 @@ SCHEMA_DESIGN.md      Data model, access patterns, NoSQL design notes
 
 ## Pipeline workflow
 
-Stages, in order: **New Lead → Calling → Contacted → Meeting/Consultation
-→ Follow-up → Deal In Progress → Deal Closed / Deal Rejected.**
+Stages, in order: **New Lead → Meeting/Consultation → Follow-up →
+Deal In Progress → Deal Closed / Deal Rejected.**
 
-After **Contacted**, the drawer shows an explicit choice rather than a
+From **New Lead**, the drawer shows an explicit choice rather than a
 generic dropdown — "→ Proceed to Meeting" or "✕ Client Rejected" — so
 that outcome is a visible decision point, not just one option buried in
 a grid of every stage. Rejected is also reachable from any later stage
@@ -85,8 +85,8 @@ on **Meeting** from a sales stage still triggers the RM-handoff picker
 described below — drag-and-drop and the drawer's buttons both funnel
 through the same move logic, so there's one behavior everywhere.
 
-**Sales → RM handoff**: moving a lead into **Meeting** from a sales
-stage (New/Calling/Contacted) prompts you to pick a Relationship
+**Sales → RM handoff**: moving a lead into **Meeting** from **New**
+(the only sales-owned stage now) prompts you to pick a Relationship
 Manager. Ownership transfers to them immediately; the original
 salesman keeps permanent **read-only** visibility (`sourcedBy`) and can
 follow progress but not edit or comment further.
@@ -102,7 +102,7 @@ with clients who didn't convert the first time.
 
 | Role  | Sees | Can do |
 |-------|------|--------|
-| sales | own + sourced leads | create leads, work New→Contacted, hand off to RM |
+| sales | own + sourced leads | create leads, hand off to RM from New |
 | rm    | all leads (read); owned leads (write) | take handoffs, run Meeting→Closed, win-back list |
 | admin | everything | full control, including the employee activity report |
 

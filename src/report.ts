@@ -5,7 +5,7 @@ type Staff = Schema["StaffProfile"]["type"];
 
 export type ReportPeriod = "thisWeek" | "thisMonth" | "lastMonth";
 
-const STAGE_IDS = ["new", "calling", "contacted", "meeting", "followup", "inprogress", "closed", "rejected"];
+const STAGE_IDS = ["new", "meeting", "followup", "inprogress", "closed", "rejected"];
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
 

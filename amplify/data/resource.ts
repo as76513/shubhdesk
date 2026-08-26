@@ -35,8 +35,6 @@ const schema = a.schema({
       service: a.enum(['Trading', 'SIP', 'Insurance', 'Loans']),
       stage: a.enum([
         'new',
-        'calling',
-        'contacted',
         'meeting',
         'followup',
         'inprogress',
