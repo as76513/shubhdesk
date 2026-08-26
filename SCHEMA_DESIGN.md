@@ -46,6 +46,8 @@ Every read the app does, and whether it's an efficient indexed `Query` or a `Sca
 
 The two scan-and-filter patterns (`followUpOn`, `role`) are fine today: `StaffProfile` will only ever hold a handful of rows (team size), and `Lead` volume for a ~10-person team's pipeline is small. If lead volume ever grows into the thousands, the fix is a **GSI** on `followUpOn` (and possibly `stage`) so `listFollowUpsDue` becomes an indexed query instead of a full scan — not a schema rewrite, just an added index.
 
+**Not every new feature needs a new query.** The admin employee report (`src/report.ts`) needed leads-per-employee, deals-closed-per-employee, and a pipeline breakdown — all of that is computed client-side from the `leads`/`staff` arrays `App.tsx` already has in state from `listLeads()`/`listStaff()`, with zero new backend calls. Reach for a new query (and think about whether it needs an index) only when the data isn't already loaded on the page doing the aggregating.
+
 ## Authorization is part of the schema design, not bolted on after
 
 Each model's `.authorization((allow) => [...])` block *is* the access-pattern design for who can touch which rows:
