@@ -44,12 +44,6 @@ import {
   deleteInsuranceRevenue as apiDeleteInsuranceRevenue,
 } from "./targetClient";
 import {
-  mondayOf,
-  weekBounds,
-  findTarget,
-  closedLeadCountFor,
-  companyRevenueFor,
-  incentiveFor,
   pctOf,
   progressColor,
   tradingSplit,
@@ -57,6 +51,7 @@ import {
   accountOpenedBySelectValue,
   ACCOUNT_OPENED_OWN,
   insuranceSplit,
+  incentiveFor,
   monthBounds,
   monthStartOf,
   addMonths,
@@ -203,10 +198,9 @@ export default function App() {
         setMe(meInfo);
         await ensureOwnStaffProfile(meInfo.role);
         if (meInfo.role === "dealer") {
-          const [tr, st, tg] = await Promise.all([listTrades(), listStaff(), listTargets()]);
+          const [tr, st] = await Promise.all([listTrades(), listStaff()]);
           setTrades(tr);
           setStaff(st);
-          setTargets(tg);
         } else {
           const [ls, st, rmList, tg, ct, ir] = await Promise.all([
             listLeads(),
@@ -269,8 +263,6 @@ export default function App() {
       .reduce((s, t) => s + (t.brokerage ?? 0), 0);
   }, [trades]);
 
-  const thisWeek = useMemo(() => weekBounds(mondayOf()), []);
-
   const viewMonthRange = useMemo(
     () => monthBounds(parseISODate(viewMonth)),
     [viewMonth]
@@ -317,32 +309,10 @@ export default function App() {
     [monthlyTarget, staff]
   );
 
-  const myTarget = useMemo(
-    () => (me ? findTarget(targets, me.username, thisWeek.start) : undefined),
-    [me, targets, thisWeek.start]
-  );
-
-  const myClosed = useMemo(
-    () => (me ? closedLeadCountFor(me.username, leads, thisWeek) : 0),
-    [me, leads, thisWeek]
-  );
-
-  const myRevenue = useMemo(
-    () => (me ? companyRevenueFor(me.username, thisWeek, trades, insuranceRevenue) : 0),
-    [me, trades, insuranceRevenue, thisWeek]
-  );
-
   const myIncentive = useMemo(
-    () => (me ? incentiveFor(me.username, thisWeek, trades, insuranceRevenue) : 0),
-    [me, trades, insuranceRevenue, thisWeek]
+    () => (me ? incentiveFor(me.username, viewMonthRange, trades, insuranceRevenue) : 0),
+    [me, trades, insuranceRevenue, viewMonthRange]
   );
-
-  const hitWeeklyTarget = useMemo(() => {
-    if (!myTarget) return false;
-    const closedPct = pctOf(myClosed, myTarget.leadsClosedTarget);
-    const revPct = pctOf(myRevenue, myTarget.revenueTarget);
-    return (closedPct != null && closedPct >= 100) || (revPct != null && revPct >= 100);
-  }, [myTarget, myClosed, myRevenue]);
 
   const hitMonthlyTarget = useMemo(
     () =>
@@ -563,16 +533,12 @@ export default function App() {
               <button className="linkbtn" onClick={refreshTrades}>Retry</button>
             </div>
           )}
-          {hitWeeklyTarget && (
-            <div style={S.celebrateBanner}>Weekly target hit — well done.</div>
-          )}
-          <GoalsStrip
-            target={myTarget}
-            closedActual={myClosed}
-            revenueActual={myRevenue}
-            incentive={myIncentive}
-            hideClosed
-          />
+          <div style={{ ...S.statBar, marginBottom: 16 }}>
+            <div style={S.statCard}>
+              <div style={S.statValue}>{rupee(myIncentive)}</div>
+              <div style={S.statLabel}>This Month's Incentive</div>
+            </div>
+          </div>
           <TradesView
             trades={trades}
             staff={staff}
@@ -822,54 +788,6 @@ function StatBar({ stats, totalBrokerage }: { stats: any; totalBrokerage?: numbe
   );
 }
 
-function GoalsStrip({
-  target,
-  closedActual,
-  revenueActual,
-  incentive,
-  hideClosed,
-}: {
-  target?: Target;
-  closedActual: number;
-  revenueActual: number;
-  incentive: number;
-  hideClosed?: boolean;
-}) {
-  const closedPct = pctOf(closedActual, target?.leadsClosedTarget);
-  const revPct = pctOf(revenueActual, target?.revenueTarget);
-  return (
-    <div style={{ ...S.statBar, marginBottom: 16 }}>
-      <div style={S.statCard}>
-        <div style={S.statLabel}>Weekly Target</div>
-        {!target ? (
-          <div style={{ fontSize: 15, fontWeight: 600, color: "#6B7280", marginTop: 6 }}>Not set this week</div>
-        ) : (
-          <>
-            {!hideClosed && (
-              <MetricProgress
-                label="Leads closed"
-                actual={String(closedActual)}
-                goal={target.leadsClosedTarget ? String(target.leadsClosedTarget) : "—"}
-                pct={target.leadsClosedTarget ? closedPct : null}
-              />
-            )}
-            <MetricProgress
-              label="Revenue"
-              actual={rupee(revenueActual)}
-              goal={target.revenueTarget ? rupee(target.revenueTarget) : "—"}
-              pct={target.revenueTarget ? revPct : null}
-            />
-          </>
-        )}
-      </div>
-      <div style={S.statCard}>
-        <div style={S.statValue}>{rupee(incentive)}</div>
-        <div style={S.statLabel}>This Week's Incentive</div>
-      </div>
-    </div>
-  );
-}
-
 function MonthNav({ month, onChange }: { month: string; onChange: (m: string) => void }) {
   const current = monthStartOf();
   return (
@@ -1020,6 +938,8 @@ function PersonalTargetStrip({
   incentive: number;
 }) {
   const range = periodRangeFor(cadence, month);
+  const incentiveLabel =
+    month === monthStartOf() ? "This Month's Incentive" : `Incentive — ${formatMonthLong(month)}`;
   return (
     <div style={{ ...S.statBar, marginBottom: 16 }}>
       <div style={{ ...S.statCard, flex: 3 }}>
@@ -1034,7 +954,7 @@ function PersonalTargetStrip({
       </div>
       <div style={S.statCard}>
         <div style={S.statValue}>{rupee(incentive)}</div>
-        <div style={S.statLabel}>This Week's Incentive</div>
+        <div style={S.statLabel}>{incentiveLabel}</div>
       </div>
     </div>
   );

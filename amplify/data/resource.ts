@@ -177,7 +177,8 @@ const schema = a.schema({
       allow.authenticated().to(['read']),
     ]),
 
-  // Kept for the dealer weekly GoalsStrip (leads-closed + revenue).
+  // Legacy weekly per-employee goals (admin CSV Closed/Revenue Target).
+  // Not shown on dealer login — dealers have no revenue quota.
   // Sales/RM now use CompanyTarget on their personal strip instead.
   Target: a
     .model({

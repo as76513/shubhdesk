@@ -1,6 +1,18 @@
 # Plan: Weekly Targets & Incentive Calculation
 
-Two admin-configured features, planned together because they share a foundation: both are "admin sets a number per employee, tied to the ₹ value that employee generates in a period." Not implemented yet — this is the design to review before building.
+> **Superseded.** This was the pre-build design. What shipped is different:
+> shared NCA / AUM / SIP / Insurance quotas (`CompanyTarget`), not a
+> per-employee weekly ₹ target for sales/RM; trading/insurance splits in
+> `src/revenue.ts` instead of an `IncentiveRate` model. See
+> [README.md — How numbers are calculated](./README.md#how-numbers-are-calculated).
+> Keep this file only as historical context — do not implement the models
+> below as written.
+
+---
+
+## Original intent (not current product)
+
+Two admin-configured features, planned together because they share a foundation: both are "admin sets a number per employee, tied to the ₹ value that employee generates in a period."
 
 ---
 

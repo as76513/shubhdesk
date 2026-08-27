@@ -9,12 +9,15 @@ Everything here stays within free tier for under 10 users.
 ## What you're deploying
 
 - **Frontend:** the React app (the prototype, wired to the backend)
-- **Auth:** Cognito user pool with `admin` / `rm` / `sales` groups
-- **Data:** DynamoDB tables for `Lead` and `Note`, behind AppSync
+- **Auth:** Cognito user pool with `admin` / `rm` / `sales` / `dealer` groups
+- **Data:** DynamoDB tables for `Lead`, `Note`, `StaffProfile`, `Counter`,
+  `Trade`, `CompanyTarget`, `Target`, and `InsuranceRevenue`, behind AppSync
 - **Hosting + SSL + domain:** all handled by Amplify Hosting
 
-The `amplify/` folder in this bundle already defines auth and data.
-The `src/leadClient.ts` file shows how the app talks to them.
+The `amplify/` folder already defines auth and data. Frontend clients:
+`src/leadClient.ts`, `src/tradeClient.ts`, `src/targetClient.ts`.
+Business formulas (NCA / AUM / SIP / Insurance / trading splits) are in
+`src/revenue.ts` and documented in README.md.
 
 ---
 
@@ -63,9 +66,14 @@ hand. Copy these files into your project's `src/`:
   (`<Authenticator hideSignUp>`), themed navy/gold.
 - `src/App.tsx` — the full app: loads leads from the backend, reads the
   signed-in user's role from their Cognito group, and calls the data
-  client for every action. Includes loading and error states.
-- `src/leadClient.ts` — all backend calls (list, create, move/handoff,
-  notes, follow-ups, staff directory).
+  client for every action. Includes loading and error states. Dealers
+  skip the pipeline and see only trades; admin also has Trades and
+  Targets tabs.
+- `src/leadClient.ts` — Lead / Note / Staff / Counter (list, create,
+  move/handoff, notes, follow-ups, staff directory, lead delete).
+- `src/tradeClient.ts` — Trade CRUD.
+- `src/targetClient.ts` — CompanyTarget, weekly Target, InsuranceRevenue.
+- `src/revenue.ts` — NCA / AUM / SIP / Insurance actuals and trading splits.
 
 Install the libraries:
 

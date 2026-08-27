@@ -2,6 +2,8 @@
 
 How the data model in `amplify/data/resource.ts` is structured, why it's structured that way, and the NoSQL trade-offs that come with it. Written for whoever next needs to add a field or a new query.
 
+**Business formulas** (how NCA, AUM, SIP, Insurance, trading splits, and incentives are counted) are in [README.md — How numbers are calculated](./README.md#how-numbers-are-calculated) and implemented in `src/revenue.ts`. This file is the data model, not the product math.
+
 ## Why DynamoDB / NoSQL here
 
 Amplify Gen 2's `defineData` provisions AppSync + DynamoDB by default, and that fits this app's actual constraint (AWS free tier, team under 10):
@@ -53,7 +55,7 @@ Rows closed before `closedAt` existed fall back to `updatedAt` in `closedOn()` (
 
 Three rows (`monthly` / `quarterly` / `yearly`). Every sales/RM is measured against those same numbers; actuals are filtered per person in the client. **Do not rename the model** (Amplify would provision a new table and leave the old rows behind). **Do not change `periodType` from string to enum** — it is the DynamoDB key; valid values are enforced in `upsertCompanyTarget`. If quotas ever need to differ by employee, that is a *new* identifier (`username` + `periodType`), a data backfill, and a UI to edit per person — not a silent tweak to the three existing rows.
 
-`Target` (weekly, per username) stays for the dealer GoalsStrip. Leave it; do not merge it into CompanyTarget.
+`Target` (weekly, per username) is still loaded for the admin employee CSV (Closed Target / Revenue Target columns). It is **not** shown on the dealer login — dealers have no revenue quota. Do not merge it into CompanyTarget.
 
 ## Access patterns (what the app actually queries)
 
@@ -76,7 +78,7 @@ The two scan-and-filter patterns (`followUpOn`, `role`) are fine today: `StaffPr
 
 **Not every new feature needs a new query.** The admin employee report (`src/report.ts`) needed leads-per-employee, deals-closed-per-employee, pipeline breakdown, weekly target vs actual, and incentive earned — all of that is computed client-side from the `leads`/`staff`/`targets`/`trades`/`insuranceRevenue` arrays `App.tsx` already has in state, with zero new backend aggregation. Reach for a new query (and think about whether it needs an index) only when the data isn't already loaded on the page doing the aggregating. The Dealer Brokerage summary (per-day total + per-dealer breakdown in `TradesView`) is the same idea applied to `Trade`: it's a `useMemo` over whatever `listTrades()` already returned, not a new backend aggregation query.
 
-Trading / Insurance ₹ splits live in `src/revenue.ts` (company = brokerage − 20% platform, dealer = 30% of company, halved again if `Trade.accountOpenedBy` is someone other than the dealer; insurance salesperson = 50% of admin-entered company revenue). Those are the "actual" numbers for revenue targets and incentive — not `Lead.value`. SIP and Loans have no revenue formula yet.
+Trading / Insurance ₹ splits live in `src/revenue.ts` (company = brokerage − 20% platform, dealer = 30% of company, halved again if `Trade.accountOpenedBy` is someone other than the dealer; insurance salesperson = 50% of admin-entered company revenue). The Trades tab **Dealer / Employee Revenue** card uses the unhalved 30%. NCA / AUM / SIP / Insurance period actuals are also in that file — see README for the full table. SIP and Loans have no revenue formula yet. Do not use `Lead.value` as trading “actual” for incentive.
 
 ## Authorization is part of the schema design, not bolted on after
 
@@ -86,7 +88,7 @@ Each model's `.authorization((allow) => [...])` block *is* the access-pattern de
 - **`StaffProfile`**: `allow.group('admin')` for full writes, `allow.ownerDefinedIn('username').to(['create','update'])` so a user can create/update *only the row matching their own identity* (this is what lets `ensureOwnStaffProfile()` self-register a row on first login without needing admin-only write access), and `allow.authenticated().to(['read'])` for everyone (needed to resolve display names and populate the RM dropdown). Note this is the one model where the "owner" field (`username`) isn't `owner`/`sourcedBy` by name — `ownerDefinedIn` just needs *a* field that equals the caller's identity, whatever it's called.
 - **`Counter`**: `allow.group('admin')` for writes, `allow.authenticated().to(['read','create','update'])` for everyone (any staff member creating a lead needs to bump the sequence).
 - **`Note`**: `allow.group('admin')` + `allow.authenticated().to(['read','create'])` (notes are cheap and shared; the sensitive control point is `Lead`, not `Note`).
-- **`Trade`**: `allow.group('admin')` + `allow.ownerDefinedIn('owner')` — no group-level read for anyone else, unlike `Lead`'s `rm` read rule. A dealer's trades are private to them and admin; there's no equivalent of RMs "seeing incoming handoffs" here because there's no handoff into `Trade` at all. Optional `accountOpenedBy` (Cognito username): empty or same as `owner` → dealer keeps 30% of company; any other person → that 30% is halved.
+- **`Trade`**: `allow.group('admin')` + `allow.ownerDefinedIn('owner')` — no group-level read for anyone else, unlike `Lead`'s `rm` read rule. A dealer's trades are private to them and admin; there's no equivalent of RMs "seeing incoming handoffs" here because there's no handoff into `Trade` at all. `accountOpenedBy` is stored as `OWN` (dealer opened it) or a sales/RM/admin Cognito username — empty/`OWN`/same as `owner` → dealer keeps 30% of company; any other person → that 30% is halved. Persist `OWN`; do not send `null` on update.
 - **`CompanyTarget`**: `allow.group('admin')` full control + `allow.authenticated().to(['read'])`. Identifier is `periodType` — three rows total. Same quota numbers for every sales/RM (individual, not a team pool). Valid `periodType` values enforced in `upsertCompanyTarget`, not as a GraphQL enum on the key.
 - **`Target`**: `allow.group('admin')` full control + `allow.ownerDefinedIn('username').to(['read'])`. Composite identifier `['username', 'weekStart']` so saving the same employee+week is an update, not a second row. Legacy weekly employee strip.
 - **`InsuranceRevenue`**: same auth as Target (admin writes, employee reads own). Trading revenue is **not** stored here — it is derived from `Trade.brokerage` in `src/revenue.ts`. Only Insurance needs a manual company-revenue amount.
