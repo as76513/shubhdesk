@@ -6,6 +6,7 @@ import {
   pctOf,
   sumTargetsInPeriod,
   tradingSplit,
+  openedByOther,
 } from "./revenue";
 
 type Lead = Schema["Lead"]["type"];
@@ -215,9 +216,9 @@ export function tradesToCSV(
       const date = (t.createdAt ?? "").slice(0, 10);
       const brokerage = t.brokerage ?? 0;
       const split = tradingSplit(brokerage, t);
-      const opened = t.accountOpenedBy
-        ? (dealerName ? dealerName(t.accountOpenedBy) : t.accountOpenedBy)
-        : "This dealer";
+      const opened = openedByOther(t)
+        ? (dealerName ? dealerName(t.accountOpenedBy) : (t.accountOpenedBy ?? ""))
+        : "OWN";
       lines.push(
         [
           date,

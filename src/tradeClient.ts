@@ -25,10 +25,13 @@ export async function createTrade(input: {
   accountOpenedBy?: string | null;
 }) {
   const me = await getCurrentUser();
+  const openedBy = input.accountOpenedBy?.trim() || "OWN";
   const { data, errors } = await client.models.Trade.create({
-    ...input,
+    clientName: input.clientName,
+    buyingLot: input.buyingLot,
+    brokerage: input.brokerage,
     owner: me.username,
-    accountOpenedBy: input.accountOpenedBy || undefined,
+    accountOpenedBy: openedBy,
   });
   if (errors) throw errors;
   return data;
@@ -41,7 +44,20 @@ export async function updateTrade(input: {
   brokerage?: number;
   accountOpenedBy?: string | null;
 }) {
-  const { data, errors } = await client.models.Trade.update(input);
+  const payload: {
+    id: string;
+    clientName?: string;
+    buyingLot?: string;
+    brokerage?: number;
+    accountOpenedBy?: string;
+  } = { id: input.id };
+  if (input.clientName !== undefined) payload.clientName = input.clientName;
+  if (input.buyingLot !== undefined) payload.buyingLot = input.buyingLot;
+  if (input.brokerage !== undefined) payload.brokerage = input.brokerage;
+  if (input.accountOpenedBy !== undefined) {
+    payload.accountOpenedBy = input.accountOpenedBy?.trim() || "OWN";
+  }
+  const { data, errors } = await client.models.Trade.update(payload);
   if (errors) throw errors;
   return data;
 }

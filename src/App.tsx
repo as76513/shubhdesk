@@ -54,6 +54,8 @@ import {
   progressColor,
   tradingSplit,
   openedByOther,
+  accountOpenedBySelectValue,
+  ACCOUNT_OPENED_OWN,
   insuranceSplit,
   monthBounds,
   monthStartOf,
@@ -1495,8 +1497,12 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
   const [period, setPeriod] = useState<TradePeriod>("thisMonth");
   const [downloadDate, setDownloadDate] = useState(todayISO());
 
-  const employees = useMemo(
-    () => staff.slice().sort((a, b) => a.displayName.localeCompare(b.displayName)),
+  const openers = useMemo(
+    () =>
+      staff
+        .filter((s) => s.role !== "dealer")
+        .slice()
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
     [staff]
   );
 
@@ -1523,8 +1529,8 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
   }
 
   const totalBrokerage = sumBrokerage(periodTrades);
-  const companyRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).company, 0);
-  const dealerRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
+  const companyRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0).company, 0);
+  const dealerEmployeeRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0).dealer, 0);
   const byDealer = useMemo(() => {
     const map = new Map<string, { count: number; brokerage: number; payout: number }>();
     periodTrades.forEach((t) => {
@@ -1586,8 +1592,8 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           <div style={S.statLabel}>Company Revenue (after 20% platform)</div>
         </div>
         <div style={S.statCard}>
-          <div style={S.statValue}>{rupee(dealerRevenue)}</div>
-          <div style={S.statLabel}>Dealer Revenue (30%, halved if opened by others)</div>
+          <div style={S.statValue}>{rupee(dealerEmployeeRevenue)}</div>
+          <div style={S.statLabel}>Dealer / Employee Revenue</div>
         </div>
         <div style={S.statCard}>
           <div style={S.statValue}>{periodTrades.length}</div>
@@ -1644,12 +1650,12 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
                 {isAdmin ? (
                   <select
                     className="sel"
-                    value={t.accountOpenedBy ?? ""}
-                    onChange={(e) => onUpdate({ id: t.id, accountOpenedBy: e.target.value || null })}
+                    value={accountOpenedBySelectValue(t)}
+                    onChange={(e) => onUpdate({ id: t.id, accountOpenedBy: e.target.value || ACCOUNT_OPENED_OWN })}
                     style={{ width: "100%", fontSize: 12 }}
                   >
-                    <option value="">This dealer</option>
-                    {employees.map((s) => (
+                    <option value={ACCOUNT_OPENED_OWN}>OWN</option>
+                    {openers.map((s) => (
                       <option key={s.username} value={s.username}>
                         {s.displayName} ({s.role})
                       </option>
@@ -1657,7 +1663,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
                   </select>
                 ) : (
                   <span style={{ fontSize: 12, color: openedByOther(t) ? "#B45309" : "#374151" }}>
-                    {t.accountOpenedBy ? nameOf(t.accountOpenedBy) : "This dealer"}
+                    {openedByOther(t) ? nameOf(t.accountOpenedBy) : "OWN"}
                     {openedByOther(t) ? " · 50%" : ""}
                   </span>
                 )}
@@ -1676,7 +1682,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
       {editing && (
         <TradeModal
           trade={editing === "new" ? null : editing}
-          employees={employees}
+          employees={openers}
           isAdmin={isAdmin}
           nameOf={nameOf}
           onClose={() => setEditing(null)}
@@ -1703,7 +1709,9 @@ function TradeModal({ trade, employees, isAdmin, nameOf, onClose, onSave }: {
   const [clientName, setClientName] = useState(trade?.clientName ?? "");
   const [buyingLot, setBuyingLot] = useState(trade?.buyingLot ?? "");
   const [brokerage, setBrokerage] = useState(trade?.brokerage != null ? String(trade.brokerage) : "");
-  const [accountOpenedBy, setAccountOpenedBy] = useState(trade?.accountOpenedBy ?? "");
+  const [accountOpenedBy, setAccountOpenedBy] = useState(
+    trade ? accountOpenedBySelectValue(trade) : ACCOUNT_OPENED_OWN
+  );
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -1716,7 +1724,7 @@ function TradeModal({ trade, employees, isAdmin, nameOf, onClose, onSave }: {
       clientName: name,
       buyingLot: buyingLot.trim() || undefined,
       brokerage: Number(brokerage) || 0,
-      accountOpenedBy: isAdmin ? (accountOpenedBy || null) : (trade?.accountOpenedBy ?? null),
+      accountOpenedBy: isAdmin ? (accountOpenedBy || ACCOUNT_OPENED_OWN) : (trade?.accountOpenedBy ?? ACCOUNT_OPENED_OWN),
     });
     setSaving(false);
   }
@@ -1737,16 +1745,16 @@ function TradeModal({ trade, employees, isAdmin, nameOf, onClose, onSave }: {
         {isAdmin ? (
           <Field label="Account Opened By">
             <select className="sel" value={accountOpenedBy} onChange={(e) => setAccountOpenedBy(e.target.value)} style={{ width: "100%" }}>
-              <option value="">This dealer (full 30%)</option>
+              <option value={ACCOUNT_OPENED_OWN}>OWN</option>
               {employees.map((s) => (
                 <option key={s.username} value={s.username}>{s.displayName} ({s.role})</option>
               ))}
             </select>
-            <div style={S.hint}>If someone else opened the account, dealer payout is 50% of the usual 30%.</div>
+            <div style={S.hint}>OWN = the dealer opened this account (full 30%). Anyone else = dealer payout × 0.5. This is saved on the trade.</div>
           </Field>
         ) : (
           <div style={{ ...S.hint, marginTop: 8 }}>
-            Account opened by: {trade?.accountOpenedBy ? nameOf(trade.accountOpenedBy) : "this dealer"}.
+            Account opened by: {trade && openedByOther(trade) ? nameOf(trade.accountOpenedBy) : "OWN"}.
             Admin can change this if the account was opened by someone else.
           </div>
         )}

@@ -20,12 +20,18 @@ export const TRADING_PLATFORM_FEE = 0.2;
 export const DEALER_SHARE_OF_COMPANY = 0.3;
 export const DEALER_OPENED_ELSEWHERE_CUT = 0.5;
 export const INSURANCE_SALES_SHARE = 0.5;
+/** Stored on Trade.accountOpenedBy when the dealer opened the account themselves. */
+export const ACCOUNT_OPENED_OWN = "OWN";
 
 /** True when admin recorded that someone other than the dealer opened the account. */
 export function openedByOther(trade: { owner?: string | null; accountOpenedBy?: string | null }): boolean {
   const opened = trade.accountOpenedBy;
-  if (!opened) return false;
-  return opened !== trade.owner;
+  if (!opened || opened === ACCOUNT_OPENED_OWN || opened === trade.owner) return false;
+  return true;
+}
+
+export function accountOpenedBySelectValue(trade: { owner?: string | null; accountOpenedBy?: string | null }): string {
+  return openedByOther(trade) ? (trade.accountOpenedBy as string) : ACCOUNT_OPENED_OWN;
 }
 
 export function tradingSplit(
