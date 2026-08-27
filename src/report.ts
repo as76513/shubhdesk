@@ -1,8 +1,17 @@
 import type { Schema } from "../amplify/data/resource";
+import {
+  closedLeadCountFor,
+  companyRevenueFor,
+  incentiveFor,
+  pctOf,
+  sumTargetsInPeriod,
+} from "./revenue";
 
 type Lead = Schema["Lead"]["type"];
 type Staff = Schema["StaffProfile"]["type"];
 type Trade = Schema["Trade"]["type"];
+type Target = Schema["Target"]["type"];
+type InsuranceRevenue = Schema["InsuranceRevenue"]["type"];
 
 export type ReportPeriod = "thisWeek" | "thisMonth" | "lastMonth";
 
@@ -38,6 +47,13 @@ export interface EmployeeReportRow {
   dealsClosedValue: number;
   handoffsToRM: number;
   pipeline: Record<string, number>;
+  closedTarget: number | null;
+  closedActual: number;
+  closedPct: number | null;
+  revenueTarget: number | null;
+  revenueActual: number;
+  revenuePct: number | null;
+  incentiveEarned: number;
 }
 
 /**
@@ -49,7 +65,8 @@ export interface EmployeeReportRow {
 export function buildEmployeeReport(
   leads: Lead[],
   staff: Staff[],
-  period: ReportPeriod
+  period: ReportPeriod,
+  extras?: { targets?: Target[]; trades?: Trade[]; insurance?: InsuranceRevenue[] }
 ): { rows: EmployeeReportRow[]; range: { start: string; end: string; label: string } } {
   const range = periodRange(period);
   const dateOf = (s?: string | null) => (s ? s.slice(0, 10) : "");
@@ -59,11 +76,18 @@ export function buildEmployeeReport(
     return raw.includes("@") ? raw.split("@")[0] : raw;
   };
 
+  const targets = extras?.targets ?? [];
+  const trades = extras?.trades ?? [];
+  const insurance = extras?.insurance ?? [];
+
   const usernames = new Set<string>();
+  staff.forEach((s) => { if (s.username) usernames.add(s.username); });
   leads.forEach((l) => {
     if (l.sourcedBy) usernames.add(l.sourcedBy);
     if (l.owner) usernames.add(l.owner);
   });
+  trades.forEach((t) => { if (t.owner) usernames.add(t.owner); });
+  insurance.forEach((r) => { if (r.username) usernames.add(r.username); });
 
   const rows: EmployeeReportRow[] = Array.from(usernames)
     .map((username) => {
@@ -92,7 +116,29 @@ export function buildEmployeeReport(
         }
       });
 
-      return { username, displayName: nameOf(username), leadsSourced, dealsClosedCount, dealsClosedValue, handoffsToRM, pipeline };
+      const summed = sumTargetsInPeriod(targets, username, range);
+      const closedTarget = summed.weeksSet > 0 ? summed.leadsClosedTarget : null;
+      const revenueTarget = summed.weeksSet > 0 ? summed.revenueTarget : null;
+      const closedActual = closedLeadCountFor(username, leads, range);
+      const revenueActual = companyRevenueFor(username, range, trades, insurance);
+      const incentiveEarned = incentiveFor(username, range, trades, insurance);
+
+      return {
+        username,
+        displayName: nameOf(username),
+        leadsSourced,
+        dealsClosedCount,
+        dealsClosedValue,
+        handoffsToRM,
+        pipeline,
+        closedTarget,
+        closedActual,
+        closedPct: pctOf(closedActual, closedTarget),
+        revenueTarget,
+        revenueActual,
+        revenuePct: pctOf(revenueActual, revenueTarget),
+        incentiveEarned,
+      };
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
@@ -111,6 +157,13 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
     "Deals Closed",
     "Deals Closed Value (INR)",
     "Handoffs to RM",
+    "Closed Target",
+    "Closed Actual",
+    "Closed % Achieved",
+    "Revenue Target (INR)",
+    "Revenue Actual (INR)",
+    "Revenue % Achieved",
+    "Incentive Earned (INR)",
     ...STAGE_IDS.map((s) => `Pipeline: ${s}`),
   ];
   const lines = [header.map(csvEscape).join(",")];
@@ -121,6 +174,13 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
       r.dealsClosedCount,
       r.dealsClosedValue,
       r.handoffsToRM,
+      r.closedTarget ?? "",
+      r.closedActual,
+      r.closedPct ?? "",
+      r.revenueTarget ?? "",
+      r.revenueActual,
+      r.revenuePct ?? "",
+      r.incentiveEarned,
       ...STAGE_IDS.map((s) => r.pipeline[s] ?? 0),
     ];
     lines.push(cells.map(csvEscape).join(","));

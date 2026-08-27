@@ -137,6 +137,37 @@ const schema = a.schema({
       allow.ownerDefinedIn('owner'),
     ]),
 
+  // Weekly targets per employee. Composite key so a second save for the
+  // same person+week updates the row instead of creating a duplicate.
+  // Employees can read their own; only admin writes.
+  Target: a
+    .model({
+      username: a.string().required(), // Cognito username, same as Lead.owner
+      weekStart: a.string().required(), // Monday of the week, YYYY-MM-DD
+      leadsClosedTarget: a.integer().default(0), // count of closed deals
+      revenueTarget: a.integer().default(0),     // ₹ company revenue attributed to them
+    })
+    .identifier(['username', 'weekStart'])
+    .authorization((allow) => [
+      allow.group('admin'),
+      allow.ownerDefinedIn('username').to(['read']),
+    ]),
+
+  // Admin-entered company revenue for Insurance (Trading is derived from
+  // Trade.brokerage — do not duplicate it here). Salesperson incentive is
+  // 50% of companyRevenue, computed in src/revenue.ts, not stored.
+  InsuranceRevenue: a
+    .model({
+      username: a.string().required(), // employee this amount is attributed to
+      companyRevenue: a.integer().required(), // ₹ the company actually earned
+      earnedOn: a.date().required(),   // YYYY-MM-DD the revenue belongs to
+      note: a.string(),
+    })
+    .authorization((allow) => [
+      allow.group('admin'),
+      allow.ownerDefinedIn('username').to(['read']),
+    ]),
+
   Note: a
     .model({
       leadId: a.id().required(),

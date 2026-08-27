@@ -33,6 +33,27 @@ import {
   updateTrade as apiUpdateTrade,
   deleteTrade as apiDeleteTrade,
 } from "./tradeClient";
+import {
+  listTargets,
+  upsertTarget as apiUpsertTarget,
+  listInsuranceRevenue,
+  createInsuranceRevenue as apiCreateInsuranceRevenue,
+  updateInsuranceRevenue as apiUpdateInsuranceRevenue,
+  deleteInsuranceRevenue as apiDeleteInsuranceRevenue,
+} from "./targetClient";
+import {
+  mondayOf,
+  weekBounds,
+  addDaysISO,
+  findTarget,
+  closedLeadCountFor,
+  companyRevenueFor,
+  incentiveFor,
+  pctOf,
+  progressColor,
+  tradingSplit,
+  insuranceSplit,
+} from "./revenue";
 import type { Schema } from "../amplify/data/resource";
 
 // ============================================================
@@ -45,6 +66,8 @@ type Lead = Schema["Lead"]["type"];
 type Note = Schema["Note"]["type"];
 type Staff = Schema["StaffProfile"]["type"];
 type Trade = Schema["Trade"]["type"];
+type Target = Schema["Target"]["type"];
+type InsuranceRevenue = Schema["InsuranceRevenue"]["type"];
 
 const STAGES = [
   { id: "new", label: "New Lead", color: "#6B7280" },
@@ -75,6 +98,10 @@ const REJECTION_REASONS = [
 ];
 
 const rupee = (n?: number | null) => "₹" + (n ?? 0).toLocaleString("en-IN");
+const weekLabel = (weekStart: string) => {
+  const [y, m, d] = weekStart.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+};
 const stageOf = (id?: string | null) => STAGES.find((s) => s.id === id) ?? STAGES[0];
 const sourceOf = (id?: string | null) => SOURCES.find((s) => s.id === id)?.label ?? id;
 const reasonOf = (id?: string | null) => REJECTION_REASONS.find((r) => r.id === id)?.label ?? id;
@@ -87,10 +114,12 @@ export default function App() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [rms, setRms] = useState<Staff[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [targets, setTargets] = useState<Target[]>([]);
+  const [insuranceRevenue, setInsuranceRevenue] = useState<InsuranceRevenue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [view, setView] = useState<"board" | "list" | "followups" | "trades">("board");
+  const [view, setView] = useState<"board" | "list" | "followups" | "trades" | "targets">("board");
   const [selected, setSelected] = useState<Lead | null>(null);
   const [filterService, setFilterService] = useState("All");
   const [handoffPrompt, setHandoffPrompt] = useState<{ lead: Lead; targetStage: string } | null>(null);
@@ -122,6 +151,17 @@ export default function App() {
     }
   }, []);
 
+  const refreshTargets = useCallback(async () => {
+    setError(null);
+    try {
+      const [tg, ir] = await Promise.all([listTargets(), listInsuranceRevenue()]);
+      setTargets(tg);
+      setInsuranceRevenue(ir);
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't load targets. Check your connection and try again."));
+    }
+  }, []);
+
   // Initial load. Dealers only ever need Trade data — no point loading
   // the entire lead pipeline for a role that can't see it. Admins get
   // both, since they get a Trades tab alongside the pipeline.
@@ -133,14 +173,23 @@ export default function App() {
         setMe(meInfo);
         await ensureOwnStaffProfile(meInfo.role);
         if (meInfo.role === "dealer") {
-          const [tr, st] = await Promise.all([listTrades(), listStaff()]);
+          const [tr, st, tg] = await Promise.all([listTrades(), listStaff(), listTargets()]);
           setTrades(tr);
           setStaff(st);
+          setTargets(tg);
         } else {
-          const [ls, st, rmList] = await Promise.all([listLeads(), listStaff(), listRMs()]);
+          const [ls, st, rmList, tg, ir] = await Promise.all([
+            listLeads(),
+            listStaff(),
+            listRMs(),
+            listTargets(),
+            listInsuranceRevenue(),
+          ]);
           setLeads(ls);
           setStaff(st);
           setRms(rmList);
+          setTargets(tg);
+          setInsuranceRevenue(ir);
           if (meInfo.role === "admin") {
             setTrades(await listTrades());
           }
@@ -188,6 +237,35 @@ export default function App() {
       .filter((t) => (t.createdAt ?? "").slice(0, 10) === today)
       .reduce((s, t) => s + (t.brokerage ?? 0), 0);
   }, [trades]);
+
+  const thisWeek = useMemo(() => weekBounds(mondayOf()), []);
+
+  const myTarget = useMemo(
+    () => (me ? findTarget(targets, me.username, thisWeek.start) : undefined),
+    [me, targets, thisWeek.start]
+  );
+
+  const myClosed = useMemo(
+    () => (me ? closedLeadCountFor(me.username, leads, thisWeek) : 0),
+    [me, leads, thisWeek]
+  );
+
+  const myRevenue = useMemo(
+    () => (me ? companyRevenueFor(me.username, thisWeek, trades, insuranceRevenue) : 0),
+    [me, trades, insuranceRevenue, thisWeek]
+  );
+
+  const myIncentive = useMemo(
+    () => (me ? incentiveFor(me.username, thisWeek, trades, insuranceRevenue) : 0),
+    [me, trades, insuranceRevenue, thisWeek]
+  );
+
+  const hitWeeklyTarget = useMemo(() => {
+    if (!myTarget) return false;
+    const closedPct = pctOf(myClosed, myTarget.leadsClosedTarget);
+    const revPct = pctOf(myRevenue, myTarget.revenueTarget);
+    return (closedPct != null && closedPct >= 100) || (revPct != null && revPct >= 100);
+  }, [myTarget, myClosed, myRevenue]);
 
   function canEdit(lead: Lead) {
     if (!me) return false;
@@ -292,6 +370,64 @@ export default function App() {
     }
   }
 
+  async function handleUpsertTarget(input: {
+    username: string;
+    weekStart: string;
+    leadsClosedTarget: number;
+    revenueTarget: number;
+  }) {
+    try {
+      await apiUpsertTarget(input);
+      await refreshTargets();
+      return true;
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't save the target. Please try again."));
+      return false;
+    }
+  }
+
+  async function handleCreateInsurance(input: {
+    username: string;
+    companyRevenue: number;
+    earnedOn: string;
+    note?: string;
+  }) {
+    try {
+      await apiCreateInsuranceRevenue(input);
+      await refreshTargets();
+      return true;
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't save insurance revenue. Please try again."));
+      return false;
+    }
+  }
+
+  async function handleUpdateInsurance(input: {
+    id: string;
+    username: string;
+    companyRevenue: number;
+    earnedOn: string;
+    note?: string | null;
+  }) {
+    try {
+      await apiUpdateInsuranceRevenue(input);
+      await refreshTargets();
+      return true;
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't update insurance revenue. Please try again."));
+      return false;
+    }
+  }
+
+  async function handleDeleteInsurance(id: string) {
+    try {
+      await apiDeleteInsuranceRevenue(id);
+      await refreshTargets();
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't delete that insurance entry. Please try again."));
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
@@ -319,6 +455,16 @@ export default function App() {
               <button className="linkbtn" onClick={refreshTrades}>Retry</button>
             </div>
           )}
+          {hitWeeklyTarget && (
+            <div style={S.celebrateBanner}>Weekly target hit — well done.</div>
+          )}
+          <GoalsStrip
+            target={myTarget}
+            closedActual={myClosed}
+            revenueActual={myRevenue}
+            incentive={myIncentive}
+            hideClosed
+          />
           <TradesView
             trades={trades}
             nameOf={nameOf}
@@ -345,6 +491,17 @@ export default function App() {
         )}
 
         <StatBar stats={stats} totalBrokerage={me?.role === "admin" ? todayBrokerage : undefined} />
+        {hitWeeklyTarget && (
+          <div style={S.celebrateBanner}>Weekly target hit — well done.</div>
+        )}
+        {me?.role !== "admin" && (
+          <GoalsStrip
+            target={myTarget}
+            closedActual={myClosed}
+            revenueActual={myRevenue}
+            incentive={myIncentive}
+          />
+        )}
 
         <div style={S.toolbar}>
           <div style={S.tabs}>
@@ -358,16 +515,27 @@ export default function App() {
             {me?.role === "admin" && (
               <button className={view === "trades" ? "tab active" : "tab"} onClick={() => setView("trades")}>Trades</button>
             )}
+            {me?.role === "admin" && (
+              <button className={view === "targets" ? "tab active" : "tab"} onClick={() => setView("targets")}>Targets</button>
+            )}
           </div>
           <div style={S.filters}>
-            {view !== "trades" && (
+            {view !== "trades" && view !== "targets" && (
               <select value={filterService} onChange={(e) => setFilterService(e.target.value)} className="sel">
                 <option>All</option>
                 {SERVICES.map((s) => <option key={s}>{s}</option>)}
               </select>
             )}
-            {me?.role === "admin" && view !== "trades" && <ReportButton leads={visibleLeads} staff={staff} />}
-            {view !== "trades" && <NewLeadButton onCreate={handleCreate} />}
+            {me?.role === "admin" && view !== "trades" && (
+              <ReportButton
+                leads={visibleLeads}
+                staff={staff}
+                targets={targets}
+                trades={trades}
+                insurance={insuranceRevenue}
+              />
+            )}
+            {view !== "trades" && view !== "targets" && <NewLeadButton onCreate={handleCreate} />}
           </div>
         </div>
 
@@ -382,6 +550,19 @@ export default function App() {
             onCreate={handleCreateTrade}
             onUpdate={handleUpdateTrade}
             onDelete={handleDeleteTrade}
+          />
+        ) : view === "targets" ? (
+          <TargetsView
+            staff={staff}
+            leads={leads}
+            trades={trades}
+            targets={targets}
+            insurance={insuranceRevenue}
+            nameOf={nameOf}
+            onSaveTarget={handleUpsertTarget}
+            onCreateInsurance={handleCreateInsurance}
+            onUpdateInsurance={handleUpdateInsurance}
+            onDeleteInsurance={handleDeleteInsurance}
           />
         ) : (
           <ListView leads={visibleLeads} onOpen={setSelected} />
@@ -477,6 +658,82 @@ function StatBar({ stats, totalBrokerage }: { stats: any; totalBrokerage?: numbe
           <div style={S.statLabel}>{it.label}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function GoalsStrip({
+  target,
+  closedActual,
+  revenueActual,
+  incentive,
+  hideClosed,
+}: {
+  target?: Target;
+  closedActual: number;
+  revenueActual: number;
+  incentive: number;
+  hideClosed?: boolean;
+}) {
+  const closedPct = pctOf(closedActual, target?.leadsClosedTarget);
+  const revPct = pctOf(revenueActual, target?.revenueTarget);
+  return (
+    <div style={{ ...S.statBar, marginBottom: 16 }}>
+      <div style={S.statCard}>
+        <div style={S.statLabel}>Weekly Target</div>
+        {!target ? (
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#6B7280", marginTop: 6 }}>Not set this week</div>
+        ) : (
+          <>
+            {!hideClosed && (
+              <MetricProgress
+                label="Leads closed"
+                actual={String(closedActual)}
+                goal={target.leadsClosedTarget ? String(target.leadsClosedTarget) : "—"}
+                pct={target.leadsClosedTarget ? closedPct : null}
+              />
+            )}
+            <MetricProgress
+              label="Revenue"
+              actual={rupee(revenueActual)}
+              goal={target.revenueTarget ? rupee(target.revenueTarget) : "—"}
+              pct={target.revenueTarget ? revPct : null}
+            />
+          </>
+        )}
+      </div>
+      <div style={S.statCard}>
+        <div style={S.statValue}>{rupee(incentive)}</div>
+        <div style={S.statLabel}>This Week's Incentive</div>
+      </div>
+    </div>
+  );
+}
+
+function MetricProgress({
+  label,
+  actual,
+  goal,
+  pct,
+}: {
+  label: string;
+  actual: string;
+  goal: string;
+  pct: number | null;
+}) {
+  const color = progressColor(pct);
+  const width = Math.min(100, Math.max(0, pct ?? 0));
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, fontWeight: 600 }}>
+        <span>{label}</span>
+        <span style={{ color, textAlign: "right" }}>
+          {actual} / {goal}{pct != null ? ` · ${pct}%` : ""}
+        </span>
+      </div>
+      <div style={S.progressTrack}>
+        <div style={{ ...S.progressFill, width: `${width}%`, background: color }} />
+      </div>
     </div>
   );
 }
@@ -851,6 +1108,7 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
     [trades, downloadDate]
   );
   const totalBrokerage = dayTrades.reduce((s, t) => s + (t.brokerage ?? 0), 0);
+  const { company: companyRevenue, dealer: dealerRevenue } = tradingSplit(totalBrokerage);
   const byDealer = useMemo(() => {
     const map = new Map<string, { count: number; total: number }>();
     dayTrades.forEach((t) => {
@@ -877,6 +1135,14 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
         <div style={S.statCard}>
           <div style={S.statValue}>{rupee(totalBrokerage)}</div>
           <div style={S.statLabel}>Total Brokerage — {downloadDate}</div>
+        </div>
+        <div style={S.statCard}>
+          <div style={S.statValue}>{rupee(companyRevenue)}</div>
+          <div style={S.statLabel}>Company Revenue (after 20% platform)</div>
+        </div>
+        <div style={S.statCard}>
+          <div style={S.statValue}>{rupee(dealerRevenue)}</div>
+          <div style={S.statLabel}>Dealer Revenue (30% of company)</div>
         </div>
         <div style={S.statCard}>
           <div style={S.statValue}>{dayTrades.length}</div>
@@ -984,12 +1250,354 @@ function TradeModal({ trade, onClose, onSave }: {
   );
 }
 
-function ReportButton({ leads, staff }: { leads: Lead[]; staff: Staff[] }) {
+function TargetsView({
+  staff,
+  leads,
+  trades,
+  targets,
+  insurance,
+  nameOf,
+  onSaveTarget,
+  onCreateInsurance,
+  onUpdateInsurance,
+  onDeleteInsurance,
+}: {
+  staff: Staff[];
+  leads: Lead[];
+  trades: Trade[];
+  targets: Target[];
+  insurance: InsuranceRevenue[];
+  nameOf: (u?: string | null) => string;
+  onSaveTarget: (input: {
+    username: string;
+    weekStart: string;
+    leadsClosedTarget: number;
+    revenueTarget: number;
+  }) => Promise<boolean>;
+  onCreateInsurance: (input: {
+    username: string;
+    companyRevenue: number;
+    earnedOn: string;
+    note?: string;
+  }) => Promise<boolean>;
+  onUpdateInsurance: (input: {
+    id: string;
+    username: string;
+    companyRevenue: number;
+    earnedOn: string;
+    note?: string | null;
+  }) => Promise<boolean>;
+  onDeleteInsurance: (id: string) => void;
+}) {
+  const [weekStart, setWeekStart] = useState(mondayOf);
+  const [emp, setEmp] = useState("");
+  const [closedT, setClosedT] = useState("");
+  const [revT, setRevT] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [carried, setCarried] = useState(false);
+  const [editingIns, setEditingIns] = useState<InsuranceRevenue | "new" | null>(null);
+
+  const range = weekBounds(weekStart);
+  const employees = useMemo(() => {
+    const pool = staff.filter((s) => s.role === "sales" || s.role === "rm" || s.role === "dealer");
+    const list = (pool.length > 0 ? pool : staff).slice();
+    return list.sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [staff]);
+
+  useEffect(() => {
+    if (!emp) return;
+    const current = findTarget(targets, emp, weekStart);
+    if (current) {
+      setClosedT(current.leadsClosedTarget != null ? String(current.leadsClosedTarget) : "");
+      setRevT(current.revenueTarget != null ? String(current.revenueTarget) : "");
+      setCarried(false);
+      return;
+    }
+    const prev = findTarget(targets, emp, addDaysISO(weekStart, -7));
+    if (prev) {
+      setClosedT(prev.leadsClosedTarget != null ? String(prev.leadsClosedTarget) : "");
+      setRevT(prev.revenueTarget != null ? String(prev.revenueTarget) : "");
+      setCarried(true);
+      return;
+    }
+    setClosedT("");
+    setRevT("");
+    setCarried(false);
+  }, [emp, weekStart, targets]);
+
+  const rows = employees.map((e) => {
+    const t = findTarget(targets, e.username, weekStart);
+    const closedActual = closedLeadCountFor(e.username, leads, range);
+    const revenueActual = companyRevenueFor(e.username, range, trades, insurance);
+    const incentive = incentiveFor(e.username, range, trades, insurance);
+    const closedPct = pctOf(closedActual, t?.leadsClosedTarget);
+    const revPct = pctOf(revenueActual, t?.revenueTarget);
+    return { staff: e, target: t, closedActual, revenueActual, incentive, closedPct, revPct };
+  });
+
+  const weekIns = insurance
+    .filter((r) => (r.earnedOn ?? "") >= range.start && (r.earnedOn ?? "") <= range.end)
+    .slice()
+    .sort((a, b) => (b.earnedOn ?? "").localeCompare(a.earnedOn ?? ""));
+
+  async function saveTarget() {
+    if (!emp) return;
+    setSaving(true);
+    const ok = await onSaveTarget({
+      username: emp,
+      weekStart,
+      leadsClosedTarget: Number(closedT) || 0,
+      revenueTarget: Number(revT) || 0,
+    });
+    setSaving(false);
+    if (ok) setCarried(false);
+  }
+
+  async function handleSaveInsurance(input: {
+    username: string;
+    companyRevenue: number;
+    earnedOn: string;
+    note?: string;
+  }) {
+    const ok =
+      editingIns === "new"
+        ? await onCreateInsurance(input)
+        : await onUpdateInsurance({ id: (editingIns as InsuranceRevenue).id, ...input });
+    if (ok) setEditingIns(null);
+  }
+
+  const th: React.CSSProperties = {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: ".4px",
+  };
+
+  return (
+    <div>
+      <div style={S.hint}>
+        Trading: company revenue = brokerage − 20% platform; dealer incentive = 30% of company.
+        Insurance: you enter company revenue; salesperson incentive = 50%. SIP and Loans are not counted yet.
+        A closed lead counts for both the closer and the original salesperson.
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "12px 0 16px", flexWrap: "wrap" }}>
+        <button className="ghost sm" onClick={() => setWeekStart(addDaysISO(weekStart, -7))}>← Prev</button>
+        <input
+          type="date"
+          className="ninput"
+          style={{ width: "auto" }}
+          value={weekStart}
+          onChange={(e) => setWeekStart(mondayOf(new Date(e.target.value + "T00:00:00")))}
+        />
+        <button className="ghost sm" onClick={() => setWeekStart(addDaysISO(weekStart, 7))}>Next →</button>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#07163F" }}>Week of {weekLabel(weekStart)}</span>
+        {weekStart !== mondayOf() && (
+          <button className="ghost sm" onClick={() => setWeekStart(mondayOf())}>This week</button>
+        )}
+      </div>
+
+      <div style={{ ...S.list, padding: 16, marginBottom: 20 }}>
+        <div style={S.sectionLabel}>Set weekly target</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <Field label="Employee">
+            <select className="sel" value={emp} onChange={(e) => setEmp(e.target.value)} style={{ width: 200 }}>
+              <option value="">Select…</option>
+              {employees.map((e) => (
+                <option key={e.username} value={e.username}>
+                  {e.displayName} ({e.role})
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Leads closed">
+            <input className="ninput" style={{ width: 110 }} inputMode="numeric" value={closedT} onChange={(e) => setClosedT(e.target.value)} placeholder="e.g. 5" />
+          </Field>
+          <Field label="Revenue target (₹)">
+            <input className="ninput" style={{ width: 140 }} inputMode="numeric" value={revT} onChange={(e) => setRevT(e.target.value)} placeholder="e.g. 50000" />
+          </Field>
+          <button className="primary" onClick={saveTarget} disabled={!emp || saving} style={{ opacity: !emp || saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "Save target"}
+          </button>
+        </div>
+        {carried && (
+          <div style={S.hint}>No target for this week yet — showing last week's numbers. Save to apply them.</div>
+        )}
+      </div>
+
+      <div style={S.sectionLabel}>This week's progress</div>
+      <div style={{ ...S.list, overflowX: "auto", marginBottom: 24 }}>
+        <div style={{ ...S.listRow, cursor: "default", minWidth: 720 }}>
+          <div style={{ ...th, flex: 1.4 }}>Employee</div>
+          <div style={{ ...th, flex: 1.6 }}>Leads closed</div>
+          <div style={{ ...th, flex: 1.8 }}>Revenue</div>
+          <div style={{ ...th, textAlign: "right" }}>Incentive</div>
+        </div>
+        {rows.map((r) => (
+          <div
+            key={r.staff.username}
+            style={{ ...S.listRow, cursor: "default", minWidth: 720 }}
+            onClick={() => setEmp(r.staff.username)}
+          >
+            <div style={{ flex: 1.4 }}>
+              <div style={{ fontWeight: 600 }}>{r.staff.displayName}</div>
+              <div style={{ fontSize: 11, color: "#6B7280", textTransform: "uppercase" }}>{r.staff.role}</div>
+            </div>
+            <div style={{ flex: 1.6 }}>
+              <MetricProgress
+                label=""
+                actual={String(r.closedActual)}
+                goal={r.target?.leadsClosedTarget ? String(r.target.leadsClosedTarget) : "—"}
+                pct={r.target?.leadsClosedTarget ? r.closedPct : null}
+              />
+              {r.closedPct != null && r.closedPct >= 100 && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#15803D", marginTop: 2 }}>Target hit</div>
+              )}
+            </div>
+            <div style={{ flex: 1.8 }}>
+              <MetricProgress
+                label=""
+                actual={rupee(r.revenueActual)}
+                goal={r.target?.revenueTarget ? rupee(r.target.revenueTarget) : "—"}
+                pct={r.target?.revenueTarget ? r.revPct : null}
+              />
+              {r.revPct != null && r.revPct >= 100 && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#15803D", marginTop: 2 }}>Target hit</div>
+              )}
+            </div>
+            <div style={{ flex: 1, textAlign: "right", fontWeight: 700 }}>{rupee(r.incentive)}</div>
+          </div>
+        ))}
+        {rows.length === 0 && <div style={S.empty}>No sales / RM / dealer staff yet.</div>}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ ...S.sectionLabel, marginBottom: 0 }}>Insurance company revenue — week of {weekLabel(weekStart)}</div>
+        <button className="primary" onClick={() => setEditingIns("new")}>+ Add insurance revenue</button>
+      </div>
+      <div style={S.list}>
+        <div style={{ ...S.listRow, cursor: "default" }}>
+          <div style={{ ...th, flex: 1 }}>Date</div>
+          <div style={{ ...th, flex: 1.4 }}>Employee</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Company ₹</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Sales (50%)</div>
+          <div style={{ ...th, flex: 1.4 }}>Note</div>
+          <div style={{ width: 66 }} />
+        </div>
+        {weekIns.map((r) => (
+          <div key={r.id} className="row" style={S.listRow}>
+            <div style={{ flex: 1, fontSize: 12, color: "#6B7280", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.earnedOn}</div>
+            <div style={{ flex: 1.4, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{nameOf(r.username)}</div>
+            <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(r.companyRevenue)}</div>
+            <div style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(insuranceSplit(r.companyRevenue ?? 0).sales)}</div>
+            <div style={{ flex: 1.4, color: "#374151", fontSize: 12, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.note || "—"}</div>
+            <div style={{ width: 66, textAlign: "right" }}>
+              <button className="ghost sm" onClick={() => onDeleteInsurance(r.id)}>Delete</button>
+            </div>
+          </div>
+        ))}
+        {weekIns.length === 0 && (
+          <div style={S.empty}>No insurance revenue this week. Add the company amount — the salesperson's 50% is calculated automatically.</div>
+        )}
+      </div>
+
+      {editingIns && (
+        <InsuranceRevenueModal
+          entry={editingIns === "new" ? null : editingIns}
+          employees={employees}
+          defaultWeekStart={weekStart}
+          onClose={() => setEditingIns(null)}
+          onSave={handleSaveInsurance}
+        />
+      )}
+    </div>
+  );
+}
+
+function InsuranceRevenueModal({
+  entry,
+  employees,
+  defaultWeekStart,
+  onClose,
+  onSave,
+}: {
+  entry: InsuranceRevenue | null;
+  employees: Staff[];
+  defaultWeekStart: string;
+  onClose: () => void;
+  onSave: (input: { username: string; companyRevenue: number; earnedOn: string; note?: string }) => Promise<void>;
+}) {
+  const [username, setUsername] = useState(entry?.username ?? employees[0]?.username ?? "");
+  const [companyRevenue, setCompanyRevenue] = useState(entry?.companyRevenue != null ? String(entry.companyRevenue) : "");
+  const [earnedOn, setEarnedOn] = useState(entry?.earnedOn ?? defaultWeekStart);
+  const [note, setNote] = useState(entry?.note ?? "");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!username) { setFormError("Pick the salesperson this revenue belongs to."); return; }
+    const amount = Number(companyRevenue);
+    if (!Number.isFinite(amount) || amount <= 0) { setFormError("Enter the company revenue amount in ₹."); return; }
+    if (!earnedOn) { setFormError("Pick the date this revenue was earned."); return; }
+    setFormError(null);
+    setSaving(true);
+    await onSave({ username, companyRevenue: Math.round(amount), earnedOn, note: note.trim() || undefined });
+    setSaving(false);
+  }
+
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={S.drawerName}>{entry ? "Edit insurance revenue" : "Add insurance revenue"}</div>
+        <div style={S.hint}>This is what the company earned. The salesperson's incentive is 50% of this amount.</div>
+        <Field label="Employee" required>
+          <select className="sel" value={username} onChange={(e) => setUsername(e.target.value)} style={{ width: "100%" }}>
+            {employees.map((e) => (
+              <option key={e.username} value={e.username}>{e.displayName} ({e.role})</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Company revenue (₹)" required>
+          <input className="ninput" inputMode="numeric" placeholder="e.g. 20000" value={companyRevenue} onChange={(e) => setCompanyRevenue(e.target.value)} />
+        </Field>
+        <Field label="Earned on" required>
+          <input type="date" className="ninput" value={earnedOn} onChange={(e) => setEarnedOn(e.target.value)} />
+        </Field>
+        <Field label="Note">
+          <input className="ninput" placeholder="Policy / client (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+        {formError && <div style={S.formError}>{formError}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button className="primary" onClick={submit} disabled={saving} style={{ flex: 1, opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button className="ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReportButton({
+  leads,
+  staff,
+  targets,
+  trades,
+  insurance,
+}: {
+  leads: Lead[];
+  staff: Staff[];
+  targets: Target[];
+  trades: Trade[];
+  insurance: InsuranceRevenue[];
+}) {
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState<ReportPeriod>("thisMonth");
 
   function download() {
-    const { rows, range } = buildEmployeeReport(leads, staff, period);
+    const { rows, range } = buildEmployeeReport(leads, staff, period, { targets, trades, insurance });
     const csv = reportToCSV(rows);
     const filename = `shubhdesk-report-${range.label.replace(/\s+/g, "-").toLowerCase()}_${range.start}_to_${range.end}.csv`;
     downloadCSV(filename, csv);
@@ -1003,7 +1611,7 @@ function ReportButton({ leads, staff }: { leads: Lead[]; staff: Staff[] }) {
         <div style={S.overlay} onClick={() => setOpen(false)}>
           <div style={S.modal} onClick={(e) => e.stopPropagation()}>
             <div style={S.drawerName}>Download Employee Report</div>
-            <div style={S.hint}>A CSV summary of each employee's leads sourced, deals closed, handoffs, and current pipeline.</div>
+            <div style={S.hint}>A CSV summary of each employee's leads sourced, deals closed, handoffs, pipeline, weekly targets, and incentive earned.</div>
             <Field label="Period">
               <select className="sel" value={period} onChange={(e) => setPeriod(e.target.value as ReportPeriod)} style={{ width: "100%" }}>
                 <option value="thisWeek">This Week</option>
@@ -1143,6 +1751,9 @@ const S: Record<string, React.CSSProperties> = {
   reqText: { fontSize: 12, color: "#374151", lineHeight: 1.4 },
   dueDate: { fontSize: 12, fontWeight: 700, color: "#B45309" },
   followBanner: { background: "#FBF3DC", border: "1px solid #EAD9A6", color: "#8A6A1C", fontSize: 13, padding: "12px 16px", borderRadius: RADIUS.md, marginBottom: 16, lineHeight: 1.4 },
+  celebrateBanner: { background: "#ECFDF5", border: "1px solid #A7F3D0", color: "#065F46", fontSize: 13, fontWeight: 600, padding: "12px 16px", borderRadius: RADIUS.md, marginBottom: 16, lineHeight: 1.4 },
+  progressTrack: { height: 6, background: "#EEF0F3", borderRadius: 99, marginTop: 6, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 99, transition: "width .2s ease" },
   stagePill: { color: "#fff", fontSize: 10.5, fontWeight: 700, padding: "4px 11px", borderRadius: RADIUS.pill, display: "inline-block", letterSpacing: ".2px" },
   overlay: { position: "fixed", inset: 0, background: "rgba(7,22,63,.55)", display: "flex", justifyContent: "flex-end", zIndex: 50, backdropFilter: "blur(1px)" },
   drawer: { width: "100%", maxWidth: 460, background: "#F9FAFB", height: "100%", overflowY: "auto", padding: 24, boxShadow: SHADOW.lg },
