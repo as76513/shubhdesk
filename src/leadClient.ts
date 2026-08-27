@@ -263,6 +263,21 @@ export async function listNotes(leadId: string) {
   );
 }
 
+/**
+ * Permanently delete a lead and its activity-log notes.
+ * Intended for admin cleanup of unwanted records — UI-gated to admin.
+ */
+export async function deleteLead(leadId: string) {
+  const notes = await listNotes(leadId);
+  for (const n of notes) {
+    const { errors } = await client.models.Note.delete({ id: n.id });
+    if (errors) throw errors;
+  }
+  const { data, errors } = await client.models.Lead.delete({ id: leadId });
+  if (errors) throw errors;
+  return data;
+}
+
 function extractErrorMessage(e: unknown): string | null {
   if (!e) return null;
   if (Array.isArray(e)) {

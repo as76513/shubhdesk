@@ -4,6 +4,7 @@ type Lead = Schema["Lead"]["type"];
 type Trade = Schema["Trade"]["type"];
 type InsuranceRevenue = Schema["InsuranceRevenue"]["type"];
 type Target = Schema["Target"]["type"];
+type CompanyTarget = Schema["CompanyTarget"]["type"];
 
 /**
  * v1 revenue splits — hardcoded until the partner discussion lands a
@@ -159,6 +160,84 @@ export function monthBounds(d: Date = new Date()): { start: string; end: string 
   const start = new Date(d.getFullYear(), d.getMonth(), 1);
   const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
   return { start: toISODateLocal(start), end: toISODateLocal(end) };
+}
+
+export function monthStartOf(d: Date = new Date()): string {
+  return toISODateLocal(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+export function addMonths(iso: string, n: number): string {
+  const d = parseISODate(iso);
+  return toISODateLocal(new Date(d.getFullYear(), d.getMonth() + n, 1));
+}
+
+export function formatMonthLong(iso: string): string {
+  return parseISODate(iso).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+export function quarterBounds(d: Date = new Date()): { start: string; end: string; label: string } {
+  const q = Math.floor(d.getMonth() / 3);
+  const start = new Date(d.getFullYear(), q * 3, 1);
+  const end = new Date(d.getFullYear(), q * 3 + 3, 0);
+  return { start: toISODateLocal(start), end: toISODateLocal(end), label: `Q${q + 1} ${d.getFullYear()}` };
+}
+
+export function yearBounds(d: Date = new Date()): { start: string; end: string; label: string } {
+  const y = d.getFullYear();
+  return { start: `${y}-01-01`, end: `${y}-12-31`, label: String(y) };
+}
+
+export type PeriodType = "monthly" | "quarterly" | "yearly";
+
+/** Starting numbers from the partner table until admin saves their own. */
+export const DEFAULT_COMPANY_TARGETS: Record<PeriodType, { ncaTarget: number; aumTarget: number; sipTarget: number; insuranceTarget: number }> = {
+  monthly: { ncaTarget: 10, aumTarget: 200_000, sipTarget: 5_000, insuranceTarget: 50_000 },
+  quarterly: { ncaTarget: 30, aumTarget: 600_000, sipTarget: 30_000, insuranceTarget: 150_000 },
+  yearly: { ncaTarget: 120, aumTarget: 3_000_000, sipTarget: 100_000, insuranceTarget: 600_000 },
+};
+
+export function companyTargetOf(
+  rows: CompanyTarget[],
+  periodType: PeriodType
+): { ncaTarget: number; aumTarget: number; sipTarget: number; insuranceTarget: number } {
+  const row = rows.find((r) => r.periodType === periodType);
+  if (!row) return DEFAULT_COMPANY_TARGETS[periodType];
+  return {
+    ncaTarget: row.ncaTarget ?? DEFAULT_COMPANY_TARGETS[periodType].ncaTarget,
+    aumTarget: row.aumTarget ?? DEFAULT_COMPANY_TARGETS[periodType].aumTarget,
+    sipTarget: row.sipTarget ?? DEFAULT_COMPANY_TARGETS[periodType].sipTarget,
+    insuranceTarget: row.insuranceTarget ?? DEFAULT_COMPANY_TARGETS[periodType].insuranceTarget,
+  };
+}
+
+export interface CompanyActuals {
+  nca: number;
+  aum: number;
+  sip: number;
+  insurance: number;
+}
+
+/**
+ * Company-wide actuals for a date range.
+ * NCA = closed leads (any service). AUM = closed Trading deal value.
+ * SIP = closed SIP deal value. Insurance = admin-entered company revenue.
+ */
+export function companyActualsFor(
+  leads: Lead[],
+  insurance: InsuranceRevenue[],
+  range: { start: string; end: string }
+): CompanyActuals {
+  const closed = leads.filter(
+    (l) => l.stage === "closed" && inDateRange(l.updatedAt, range.start, range.end)
+  );
+  return {
+    nca: closed.length,
+    aum: closed.filter((l) => l.service === "Trading").reduce((s, l) => s + (l.value ?? 0), 0),
+    sip: closed.filter((l) => l.service === "SIP").reduce((s, l) => s + (l.value ?? 0), 0),
+    insurance: insurance
+      .filter((r) => inDateRange(r.earnedOn, range.start, range.end))
+      .reduce((s, r) => s + (r.companyRevenue ?? 0), 0),
+  };
 }
 
 export function lastMonthBounds(d: Date = new Date()): { start: string; end: string } {

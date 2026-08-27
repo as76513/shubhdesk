@@ -137,9 +137,27 @@ const schema = a.schema({
       allow.ownerDefinedIn('owner'),
     ]),
 
+  // Company-wide targets, one row per cadence. Same numbers for every
+  // employee. Admin writes; any signed-in staff can read (employees will
+  // use these on their board in a later pass).
+  CompanyTarget: a
+    .model({
+      periodType: a.string().required(), // "monthly" | "quarterly" | "yearly"
+      ncaTarget: a.integer().default(0),         // New Client Acquisition (count)
+      aumTarget: a.integer().default(0),         // AUM in ₹
+      sipTarget: a.integer().default(0),         // SIP in ₹
+      insuranceTarget: a.integer().default(0),   // Insurance in ₹
+    })
+    .identifier(['periodType'])
+    .authorization((allow) => [
+      allow.group('admin'),
+      allow.authenticated().to(['read']),
+    ]),
+
   // Weekly targets per employee. Composite key so a second save for the
   // same person+week updates the row instead of creating a duplicate.
   // Employees can read their own; only admin writes.
+  // Kept for the employee GoalsStrip until that moves to CompanyTarget.
   Target: a
     .model({
       username: a.string().required(), // Cognito username, same as Lead.owner

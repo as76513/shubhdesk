@@ -15,6 +15,32 @@ export async function listTargets() {
   return data;
 }
 
+export async function listCompanyTargets() {
+  const { data, errors } = await client.models.CompanyTarget.list({ limit: 10 });
+  if (errors) throw errors;
+  return data;
+}
+
+export async function upsertCompanyTarget(input: {
+  periodType: string;
+  ncaTarget: number;
+  aumTarget: number;
+  sipTarget: number;
+  insuranceTarget: number;
+}) {
+  const existing = await client.models.CompanyTarget.get({ periodType: input.periodType });
+  if (existing.errors) throw existing.errors;
+
+  if (existing.data) {
+    const { data, errors } = await client.models.CompanyTarget.update(input);
+    if (errors) throw errors;
+    return data;
+  }
+  const { data, errors } = await client.models.CompanyTarget.create(input);
+  if (errors) throw errors;
+  return data;
+}
+
 export async function upsertTarget(input: {
   username: string;
   weekStart: string;
