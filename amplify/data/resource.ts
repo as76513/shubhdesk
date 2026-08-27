@@ -145,6 +145,9 @@ const schema = a.schema({
       buyingLot: a.string(),   // free text: instrument + quantity, dealer's own shorthand
       brokerage: a.integer(),  // brokerage earned on the trade, in rupees
       owner: a.string(),       // the dealer who logged it
+      // Who opened the trading account. Empty / same as owner = dealer
+      // keeps the full 30% of company. Anyone else = dealer payout × 0.5.
+      accountOpenedBy: a.string(),
     })
     .authorization((allow) => [
       allow.group('admin'),

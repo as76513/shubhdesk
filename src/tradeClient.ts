@@ -22,11 +22,13 @@ export async function createTrade(input: {
   clientName: string;
   buyingLot?: string;
   brokerage?: number;
+  accountOpenedBy?: string | null;
 }) {
   const me = await getCurrentUser();
   const { data, errors } = await client.models.Trade.create({
     ...input,
     owner: me.username,
+    accountOpenedBy: input.accountOpenedBy || undefined,
   });
   if (errors) throw errors;
   return data;
@@ -37,6 +39,7 @@ export async function updateTrade(input: {
   clientName?: string;
   buyingLot?: string;
   brokerage?: number;
+  accountOpenedBy?: string | null;
 }) {
   const { data, errors } = await client.models.Trade.update(input);
   if (errors) throw errors;

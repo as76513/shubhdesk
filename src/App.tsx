@@ -53,6 +53,7 @@ import {
   pctOf,
   progressColor,
   tradingSplit,
+  openedByOther,
   insuranceSplit,
   monthBounds,
   monthStartOf,
@@ -438,7 +439,12 @@ export default function App() {
     }
   }
 
-  async function handleCreateTrade(input: { clientName: string; buyingLot?: string; brokerage?: number }): Promise<boolean> {
+  async function handleCreateTrade(input: {
+    clientName: string;
+    buyingLot?: string;
+    brokerage?: number;
+    accountOpenedBy?: string | null;
+  }): Promise<boolean> {
     try {
       await apiCreateTrade(input);
       await refreshTrades();
@@ -448,7 +454,13 @@ export default function App() {
       return false;
     }
   }
-  async function handleUpdateTrade(input: { id: string; clientName: string; buyingLot?: string; brokerage?: number }): Promise<boolean> {
+  async function handleUpdateTrade(input: {
+    id: string;
+    clientName?: string;
+    buyingLot?: string;
+    brokerage?: number;
+    accountOpenedBy?: string | null;
+  }): Promise<boolean> {
     try {
       await apiUpdateTrade(input);
       await refreshTrades();
@@ -561,6 +573,8 @@ export default function App() {
           />
           <TradesView
             trades={trades}
+            staff={staff}
+            isAdmin={false}
             nameOf={nameOf}
             onCreate={handleCreateTrade}
             onUpdate={handleUpdateTrade}
@@ -660,6 +674,8 @@ export default function App() {
         ) : view === "trades" ? (
           <TradesView
             trades={trades}
+            staff={staff}
+            isAdmin
             nameOf={nameOf}
             onCreate={handleCreateTrade}
             onUpdate={handleUpdateTrade}
@@ -868,10 +884,12 @@ function MonthNav({ month, onChange }: { month: string; onChange: (m: string) =>
   );
 }
 
-function CadencePills({
+function CadenceRadios({
+  name,
   value,
   onChange,
 }: {
+  name: string;
   value: PeriodType;
   onChange: (p: PeriodType) => void;
 }) {
@@ -881,15 +899,23 @@ function CadencePills({
     { id: "yearly", label: "Yearly" },
   ];
   return (
-    <div style={S.periodGroup}>
+    <div role="radiogroup" aria-label="Progress period" style={S.periodGroup}>
       {items.map((p) => (
-        <button
+        <label
           key={p.id}
           className={value === p.id ? "periodbtn active" : "periodbtn"}
-          onClick={() => onChange(p.id)}
+          style={{ margin: 0, position: "relative" }}
         >
+          <input
+            type="radio"
+            name={name}
+            value={p.id}
+            checked={value === p.id}
+            onChange={() => onChange(p.id)}
+            style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}
+          />
           {p.label}
-        </button>
+        </label>
       ))}
     </div>
   );
@@ -933,7 +959,7 @@ function CadenceToolbar({
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
       <div style={{ ...S.statLabel, marginTop: 0 }}>{label}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        {showCadencePills && <CadencePills value={cadence} onChange={onCadenceChange} />}
+        {showCadencePills && <CadenceRadios name="personal-cadence" value={cadence} onChange={onCadenceChange} />}
         {showMonthNav && <MonthNav month={month} onChange={onMonthChange} />}
       </div>
     </div>
@@ -1029,38 +1055,34 @@ function EmployeeProgressSection({
   quarterly: MetricTargets;
   yearly: MetricTargets;
 }) {
-  const monthRange = monthBounds(parseISODate(viewMonth));
-  const q = quarterBounds(parseISODate(viewMonth));
-  const y = yearBounds(parseISODate(viewMonth));
+  const [cadence, setCadence] = useState<PeriodType>("monthly");
+  const range = periodRangeFor(cadence, viewMonth);
+  const target = cadence === "monthly" ? monthly : cadence === "quarterly" ? quarterly : yearly;
   const people = pipelineStaff(staff);
 
   return (
     <div style={{ marginBottom: 24 }}>
-      <div style={S.sectionLabel}>Monthly progress — {formatMonthLong(viewMonth)}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <div>
+          <div style={{ ...S.sectionLabel, marginBottom: 2 }}>Employee progress</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#07163F" }}>{range.label}</div>
+        </div>
+        <CadenceRadios name="employee-progress-cadence" value={cadence} onChange={setCadence} />
+      </div>
       {people.length === 0 ? (
         <div style={S.empty}>No sales or RM profiles yet — progress appears once staff log in.</div>
       ) : (
-        people.map((p) => (
-          <div key={p.username} style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#07163F", marginBottom: 8 }}>
-              {p.displayName} <span style={S.roleTag}>{(p.role ?? "").toUpperCase()}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {people.map((p) => (
+            <div key={p.username} style={{ ...S.statCard, padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#07163F" }}>{p.displayName}</div>
+                <span style={S.roleTag}>{(p.role ?? "").toUpperCase()}</span>
+              </div>
+              <TargetMetrics actuals={personActualsFor(p.username, leads, insurance, range)} target={target} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-              <div style={S.statCard}>
-                <div style={S.statLabel}>Monthly</div>
-                <TargetMetrics actuals={personActualsFor(p.username, leads, insurance, monthRange)} target={monthly} />
-              </div>
-              <div style={S.statCard}>
-                <div style={S.statLabel}>{q.label}</div>
-                <TargetMetrics actuals={personActualsFor(p.username, leads, insurance, q)} target={quarterly} />
-              </div>
-              <div style={S.statCard}>
-                <div style={S.statLabel}>Year {y.label}</div>
-                <TargetMetrics actuals={personActualsFor(p.username, leads, insurance, y)} target={yearly} />
-              </div>
-            </div>
-          </div>
-        ))
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1449,18 +1471,41 @@ function Field({ label, required, children }: { label: string; required?: boolea
   );
 }
 
-function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
+function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDelete }: {
   trades: Trade[];
+  staff: Staff[];
+  isAdmin: boolean;
   nameOf: (u?: string | null) => string;
-  onCreate: (input: { clientName: string; buyingLot?: string; brokerage?: number }) => Promise<boolean>;
-  onUpdate: (input: { id: string; clientName: string; buyingLot?: string; brokerage?: number }) => Promise<boolean>;
+  onCreate: (input: {
+    clientName: string;
+    buyingLot?: string;
+    brokerage?: number;
+    accountOpenedBy?: string | null;
+  }) => Promise<boolean>;
+  onUpdate: (input: {
+    id: string;
+    clientName?: string;
+    buyingLot?: string;
+    brokerage?: number;
+    accountOpenedBy?: string | null;
+  }) => Promise<boolean>;
   onDelete: (id: string) => void;
 }) {
   const [editing, setEditing] = useState<Trade | "new" | null>(null);
   const [period, setPeriod] = useState<TradePeriod>("thisMonth");
   const [downloadDate, setDownloadDate] = useState(todayISO());
 
-  async function handleSave(input: { clientName: string; buyingLot?: string; brokerage?: number }) {
+  const employees = useMemo(
+    () => staff.slice().sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [staff]
+  );
+
+  async function handleSave(input: {
+    clientName: string;
+    buyingLot?: string;
+    brokerage?: number;
+    accountOpenedBy?: string | null;
+  }) {
     const ok = editing === "new" ? await onCreate(input) : await onUpdate({ id: (editing as Trade).id, ...input });
     if (ok) setEditing(null);
   }
@@ -1478,19 +1523,21 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
   }
 
   const totalBrokerage = sumBrokerage(periodTrades);
-  const { company: companyRevenue, dealer: dealerRevenue } = tradingSplit(totalBrokerage);
+  const companyRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).company, 0);
+  const dealerRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
   const byDealer = useMemo(() => {
-    const map = new Map<string, { count: number; total: number }>();
+    const map = new Map<string, { count: number; brokerage: number; payout: number }>();
     periodTrades.forEach((t) => {
       const key = t.owner ?? "unknown";
-      const cur = map.get(key) ?? { count: 0, total: 0 };
+      const cur = map.get(key) ?? { count: 0, brokerage: 0, payout: 0 };
       cur.count += 1;
-      cur.total += t.brokerage ?? 0;
+      cur.brokerage += t.brokerage ?? 0;
+      cur.payout += tradingSplit(t.brokerage ?? 0, t).dealer;
       map.set(key, cur);
     });
     return Array.from(map.entries())
       .map(([owner, v]) => ({ owner, ...v }))
-      .sort((a, b) => b.total - a.total);
+      .sort((a, b) => b.payout - a.payout);
   }, [periodTrades]);
 
   const PERIODS: { id: TradePeriod; label: string }[] = [
@@ -1499,6 +1546,14 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
     { id: "thisMonth", label: "This month" },
     { id: "lastMonth", label: "Last month" },
   ];
+
+  const th: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: ".4px",
+  };
 
   return (
     <div>
@@ -1532,7 +1587,7 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
         </div>
         <div style={S.statCard}>
           <div style={S.statValue}>{rupee(dealerRevenue)}</div>
-          <div style={S.statLabel}>Dealer Revenue (30% of company)</div>
+          <div style={S.statLabel}>Dealer Revenue (30%, halved if opened by others)</div>
         </div>
         <div style={S.statCard}>
           <div style={S.statValue}>{periodTrades.length}</div>
@@ -1542,17 +1597,23 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
 
       <div style={S.drawerSection}>
         <div style={S.sectionLabel}>Dealer Brokerage — {range.label}</div>
+        <div style={S.hint}>
+          Dealer payout is 30% of company revenue. If Account Opened By is someone else, that payout is multiplied by 0.5.
+          {isAdmin ? " Set Account Opened By on each trade below and save." : ""}
+        </div>
         <div style={S.list}>
           <div style={{ ...S.listRow, cursor: "default" }}>
-            <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Dealer</div>
-            <div style={{ flex: 1, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Trades</div>
-            <div style={{ flex: 1, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Brokerage</div>
+            <div style={{ ...th, flex: 2 }}>Dealer</div>
+            <div style={{ ...th, flex: 1, textAlign: "right" }}>Trades</div>
+            <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>
+            <div style={{ ...th, flex: 1, textAlign: "right" }}>Dealer ₹</div>
           </div>
           {byDealer.map((d) => (
             <div key={d.owner} style={{ ...S.listRow, cursor: "default" }}>
               <div style={{ flex: 2, fontWeight: 600 }}>{nameOf(d.owner)}</div>
               <div style={{ flex: 1, textAlign: "right" }}>{d.count}</div>
-              <div style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(d.total)}</div>
+              <div style={{ flex: 1, textAlign: "right" }}>{rupee(d.brokerage)}</div>
+              <div style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(d.payout)}</div>
             </div>
           ))}
           {byDealer.length === 0 && <div style={S.empty}>No trades logged in this period.</div>}
@@ -1562,31 +1623,62 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
       <div style={S.sectionLabel}>All Trades</div>
       <div style={S.list}>
         <div style={{ ...S.listRow, cursor: "default" }}>
-          <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Date</div>
-          <div style={{ flex: 1.5, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Dealer</div>
-          <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Client Name</div>
-          <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Buying Lot</div>
-          <div style={{ flex: 1, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Brokerage</div>
+          <div style={{ ...th, flex: 1 }}>Date</div>
+          <div style={{ ...th, flex: 1.3 }}>Dealer</div>
+          <div style={{ ...th, flex: 1.6 }}>Client Name</div>
+          <div style={{ ...th, flex: 1.4 }}>Buying Lot</div>
+          <div style={{ ...th, flex: 1.8 }}>Account Opened By</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Dealer ₹</div>
           <div style={{ width: 66 }} />
         </div>
-        {trades.map((t) => (
-          <div key={t.id} className="row" style={S.listRow}>
-            <div style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</div>
-            <div style={{ flex: 1.5, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{nameOf(t.owner)}</div>
-            <div style={{ flex: 2, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{t.clientName}</div>
-            <div style={{ flex: 2, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{t.buyingLot || "—"}</div>
-            <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</div>
-            <div style={{ width: 66, textAlign: "right" }}>
-              <button className="ghost sm" onClick={() => onDelete(t.id)}>Delete</button>
+        {trades.map((t) => {
+          const split = tradingSplit(t.brokerage ?? 0, t);
+          return (
+            <div key={t.id} className="row" style={S.listRow}>
+              <div style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</div>
+              <div style={{ flex: 1.3, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{nameOf(t.owner)}</div>
+              <div style={{ flex: 1.6, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{t.clientName}</div>
+              <div style={{ flex: 1.4, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{t.buyingLot || "—"}</div>
+              <div style={{ flex: 1.8 }} onClick={(e) => e.stopPropagation()}>
+                {isAdmin ? (
+                  <select
+                    className="sel"
+                    value={t.accountOpenedBy ?? ""}
+                    onChange={(e) => onUpdate({ id: t.id, accountOpenedBy: e.target.value || null })}
+                    style={{ width: "100%", fontSize: 12 }}
+                  >
+                    <option value="">This dealer</option>
+                    {employees.map((s) => (
+                      <option key={s.username} value={s.username}>
+                        {s.displayName} ({s.role})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span style={{ fontSize: 12, color: openedByOther(t) ? "#B45309" : "#374151" }}>
+                    {t.accountOpenedBy ? nameOf(t.accountOpenedBy) : "This dealer"}
+                    {openedByOther(t) ? " · 50%" : ""}
+                  </span>
+                )}
+              </div>
+              <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</div>
+              <div style={{ flex: 1, textAlign: "right", fontWeight: 600, color: openedByOther(t) ? "#B45309" : "#07163F" }}>{rupee(split.dealer)}</div>
+              <div style={{ width: 66, textAlign: "right" }}>
+                <button className="ghost sm" onClick={() => onDelete(t.id)}>Delete</button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {trades.length === 0 && <div style={S.empty}>No trades yet. Click "+ New Trade" to log one.</div>}
       </div>
 
       {editing && (
         <TradeModal
           trade={editing === "new" ? null : editing}
+          employees={employees}
+          isAdmin={isAdmin}
+          nameOf={nameOf}
           onClose={() => setEditing(null)}
           onSave={handleSave}
         />
@@ -1595,14 +1687,23 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
   );
 }
 
-function TradeModal({ trade, onClose, onSave }: {
+function TradeModal({ trade, employees, isAdmin, nameOf, onClose, onSave }: {
   trade: Trade | null;
+  employees: Staff[];
+  isAdmin: boolean;
+  nameOf: (u?: string | null) => string;
   onClose: () => void;
-  onSave: (input: { clientName: string; buyingLot?: string; brokerage?: number }) => Promise<void>;
+  onSave: (input: {
+    clientName: string;
+    buyingLot?: string;
+    brokerage?: number;
+    accountOpenedBy?: string | null;
+  }) => Promise<void>;
 }) {
   const [clientName, setClientName] = useState(trade?.clientName ?? "");
   const [buyingLot, setBuyingLot] = useState(trade?.buyingLot ?? "");
   const [brokerage, setBrokerage] = useState(trade?.brokerage != null ? String(trade.brokerage) : "");
+  const [accountOpenedBy, setAccountOpenedBy] = useState(trade?.accountOpenedBy ?? "");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -1611,7 +1712,12 @@ function TradeModal({ trade, onClose, onSave }: {
     if (!name) { setFormError("Client name is required."); return; }
     setFormError(null);
     setSaving(true);
-    await onSave({ clientName: name, buyingLot: buyingLot.trim() || undefined, brokerage: Number(brokerage) || 0 });
+    await onSave({
+      clientName: name,
+      buyingLot: buyingLot.trim() || undefined,
+      brokerage: Number(brokerage) || 0,
+      accountOpenedBy: isAdmin ? (accountOpenedBy || null) : (trade?.accountOpenedBy ?? null),
+    });
     setSaving(false);
   }
 
@@ -1628,6 +1734,22 @@ function TradeModal({ trade, onClose, onSave }: {
         <Field label="Brokerage (₹)">
           <input className="ninput" placeholder="e.g. 500" value={brokerage} onChange={(e) => setBrokerage(e.target.value)} />
         </Field>
+        {isAdmin ? (
+          <Field label="Account Opened By">
+            <select className="sel" value={accountOpenedBy} onChange={(e) => setAccountOpenedBy(e.target.value)} style={{ width: "100%" }}>
+              <option value="">This dealer (full 30%)</option>
+              {employees.map((s) => (
+                <option key={s.username} value={s.username}>{s.displayName} ({s.role})</option>
+              ))}
+            </select>
+            <div style={S.hint}>If someone else opened the account, dealer payout is 50% of the usual 30%.</div>
+          </Field>
+        ) : (
+          <div style={{ ...S.hint, marginTop: 8 }}>
+            Account opened by: {trade?.accountOpenedBy ? nameOf(trade.accountOpenedBy) : "this dealer"}.
+            Admin can change this if the account was opened by someone else.
+          </div>
+        )}
         {formError && <div style={S.formError}>{formError}</div>}
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <button className="primary" onClick={submit} disabled={saving} style={{ flex: 1, opacity: saving ? 0.6 : 1 }}>
@@ -1679,6 +1801,7 @@ function TargetsView({
   onDeleteInsurance: (id: string) => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [quotasOpen, setQuotasOpen] = useState(false);
   const [editingIns, setEditingIns] = useState<InsuranceRevenue | "new" | null>(null);
   const [form, setForm] = useState({
     monthly: DEFAULT_COMPANY_TARGETS.monthly,
@@ -1755,45 +1878,75 @@ function TargetsView({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        <div style={{ ...S.sectionLabel, marginBottom: 0 }}>Individual targets</div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
         <MonthNav month={viewMonth} onChange={onMonthChange} />
       </div>
-      <div style={S.hint}>
-        The company sets these quotas; every sales and RM is measured against them personally. NCA is closed deals they own or sourced.
-        AUM is their closed Trading value. SIP is their closed SIP value. Insurance is company revenue you attribute to them below.
-        ₹ amounts: 2 Lakh = 2,00,000.
-      </div>
 
-      <div style={{ ...S.list, padding: 16, margin: "12px 0 20px", overflowX: "auto" }}>
-        <div style={{ ...S.listRow, cursor: "default", minWidth: 560 }}>
-          <div style={{ ...th, flex: 1.6 }}>Metric</div>
-          <div style={{ ...th, textAlign: "right" }}>Monthly</div>
-          <div style={{ ...th, textAlign: "right" }}>Quarterly</div>
-          <div style={{ ...th, textAlign: "right" }}>Yearly</div>
+      <button
+        type="button"
+        onClick={() => setQuotasOpen((o) => !o)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          width: "100%",
+          textAlign: "left",
+          background: "#fff",
+          border: "1px solid #EEF0F3",
+          borderRadius: 12,
+          padding: "12px 14px",
+          cursor: "pointer",
+          marginBottom: quotasOpen ? 0 : 16,
+        }}
+      >
+        <span style={{ fontSize: 11, color: "#6B7280", width: 14, flexShrink: 0 }}>{quotasOpen ? "▼" : "▶"}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ ...S.sectionLabel, marginBottom: 0 }}>Individual quotas</div>
+          {!quotasOpen && (
+            <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>One-time company setup — click to edit</div>
+          )}
         </div>
-        {ROWS.map((row) => (
-          <div key={row.key} style={{ ...S.listRow, cursor: "default", minWidth: 560 }}>
-            <div style={{ flex: 1.6, fontWeight: 600 }}>{row.label}</div>
-            {PERIODS.map((p) => (
-              <div key={p} style={{ flex: 1, textAlign: "right" }}>
-                <input
-                  className="ninput"
-                  style={{ width: "100%", maxWidth: 140, textAlign: "right" }}
-                  inputMode="numeric"
-                  value={String(form[p][row.key] ?? 0)}
-                  onChange={(e) => setCell(p, row.key, e.target.value)}
-                />
+      </button>
+
+      {quotasOpen && (
+        <>
+          <div style={{ ...S.hint, margin: "8px 0 0" }}>
+            The company sets these quotas; every sales and RM is measured against them personally. NCA is closed deals they own or sourced.
+            AUM is their closed Trading value. SIP is their closed SIP value. Insurance is company revenue you attribute to them below.
+            ₹ amounts: 2 Lakh = 2,00,000.
+          </div>
+
+          <div style={{ ...S.list, padding: 16, margin: "12px 0 20px", overflowX: "auto" }}>
+            <div style={{ ...S.listRow, cursor: "default", minWidth: 560 }}>
+              <div style={{ ...th, flex: 1.6 }}>Metric</div>
+              <div style={{ ...th, textAlign: "right" }}>Monthly</div>
+              <div style={{ ...th, textAlign: "right" }}>Quarterly</div>
+              <div style={{ ...th, textAlign: "right" }}>Yearly</div>
+            </div>
+            {ROWS.map((row) => (
+              <div key={row.key} style={{ ...S.listRow, cursor: "default", minWidth: 560 }}>
+                <div style={{ flex: 1.6, fontWeight: 600 }}>{row.label}</div>
+                {PERIODS.map((p) => (
+                  <div key={p} style={{ flex: 1, textAlign: "right" }}>
+                    <input
+                      className="ninput"
+                      style={{ width: "100%", maxWidth: 140, textAlign: "right" }}
+                      inputMode="numeric"
+                      value={String(form[p][row.key] ?? 0)}
+                      onChange={(e) => setCell(p, row.key, e.target.value)}
+                    />
+                  </div>
+                ))}
               </div>
             ))}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <button className="primary" onClick={saveAll} disabled={saving} style={{ opacity: saving ? 0.6 : 1 }}>
+                {saving ? "Saving…" : "Save quotas"}
+              </button>
+            </div>
           </div>
-        ))}
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-          <button className="primary" onClick={saveAll} disabled={saving} style={{ opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Saving…" : "Save targets"}
-          </button>
-        </div>
-      </div>
+        </>
+      )}
 
       <EmployeeProgressSection
         staff={staff}
@@ -2121,7 +2274,7 @@ const CSS = `
   .tab { border: none; background: transparent; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #6B7280; cursor: pointer; transition: background .12s ease, color .12s ease; }
   .tab:hover { color: #07163F; }
   .tab.active { background: #fff; color: #07163F; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
-  .periodbtn { border: none; background: transparent; padding: 7px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; color: #6B7280; cursor: pointer; }
+  .periodbtn { border: none; background: transparent; padding: 7px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; color: #6B7280; cursor: pointer; display: inline-flex; align-items: center; }
   .periodbtn:hover { color: #07163F; }
   .periodbtn.active { background: #07163F; color: #fff; }
   .sel, .ninput { padding: 9px 12px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 13px; background: #fff; color: #111827; transition: border-color .12s ease, box-shadow .12s ease; }

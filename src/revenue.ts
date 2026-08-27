@@ -13,15 +13,30 @@ type CompanyTarget = Schema["CompanyTarget"]["type"];
  *
  * Trading:  company = brokerage − 20% platform
  *           dealer  = 30% of company
+ *           if accountOpenedBy is set and is not the dealer, that 30% is halved
  * Insurance: company is admin-entered; salesperson = 50% of company
  */
 export const TRADING_PLATFORM_FEE = 0.2;
 export const DEALER_SHARE_OF_COMPANY = 0.3;
+export const DEALER_OPENED_ELSEWHERE_CUT = 0.5;
 export const INSURANCE_SALES_SHARE = 0.5;
 
-export function tradingSplit(brokerage: number): { company: number; dealer: number } {
+/** True when admin recorded that someone other than the dealer opened the account. */
+export function openedByOther(trade: { owner?: string | null; accountOpenedBy?: string | null }): boolean {
+  const opened = trade.accountOpenedBy;
+  if (!opened) return false;
+  return opened !== trade.owner;
+}
+
+export function tradingSplit(
+  brokerage: number,
+  trade?: { owner?: string | null; accountOpenedBy?: string | null }
+): { company: number; dealer: number } {
   const company = Math.round(brokerage * (1 - TRADING_PLATFORM_FEE));
-  const dealer = Math.round(company * DEALER_SHARE_OF_COMPANY);
+  let dealer = Math.round(company * DEALER_SHARE_OF_COMPANY);
+  if (trade && openedByOther(trade)) {
+    dealer = Math.round(dealer * DEALER_OPENED_ELSEWHERE_CUT);
+  }
   return { company, dealer };
 }
 
@@ -112,7 +127,7 @@ export function incentiveFor(
 ): number {
   const dealerCut = trades
     .filter((t) => t.owner === username && inDateRange(t.createdAt, range.start, range.end))
-    .reduce((s, t) => s + tradingSplit(t.brokerage ?? 0).dealer, 0);
+    .reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
   const salesCut = insurance
     .filter((r) => r.username === username && inDateRange(r.earnedOn, range.start, range.end))
     .reduce((s, r) => s + insuranceSplit(r.companyRevenue ?? 0).sales, 0);

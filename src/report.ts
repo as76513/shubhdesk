@@ -199,8 +199,10 @@ export function tradesToCSV(
     "Dealer",
     "Client Name",
     "Buying Lot",
+    "Account Opened By",
     "Brokerage (INR)",
     "Company Revenue (INR)",
+    "Dealer Revenue (INR)",
   ];
   const lines = [header.map(csvEscape).join(",")];
   trades
@@ -212,14 +214,20 @@ export function tradesToCSV(
     .forEach((t) => {
       const date = (t.createdAt ?? "").slice(0, 10);
       const brokerage = t.brokerage ?? 0;
+      const split = tradingSplit(brokerage, t);
+      const opened = t.accountOpenedBy
+        ? (dealerName ? dealerName(t.accountOpenedBy) : t.accountOpenedBy)
+        : "This dealer";
       lines.push(
         [
           date,
           dealerName ? dealerName(t.owner) : (t.owner ?? ""),
           t.clientName,
           t.buyingLot ?? "",
+          opened,
           brokerage,
-          tradingSplit(brokerage).company,
+          split.company,
+          split.dealer,
         ].map(csvEscape).join(",")
       );
     });
