@@ -165,23 +165,6 @@ export function lastMonthBounds(d: Date = new Date()): { start: string; end: str
   return monthBounds(new Date(d.getFullYear(), d.getMonth() - 1, 1));
 }
 
-/** Last month's calendar date matching today, clamped to that month's last day. */
-export function sameDayLastMonth(today: string = toISODateLocal()): string {
-  const [y, m, d] = today.split("-").map(Number);
-  const lastDay = new Date(y, m - 1, 0);
-  const day = Math.min(d, lastDay.getDate());
-  return toISODateLocal(new Date(y, m - 2, day));
-}
-
-export function lastNWeekStarts(n: number, from: Date = new Date()): string[] {
-  const thisMonday = mondayOf(from);
-  const weeks: string[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    weeks.push(addDaysISO(thisMonday, -7 * i));
-  }
-  return weeks;
-}
-
 export function formatWeekRange(weekStart: string): string {
   const end = addDaysISO(weekStart, 6);
   const a = parseISODate(weekStart);
@@ -215,28 +198,4 @@ export function tradePeriodRange(
 
 export function sumBrokerage(trades: Trade[]): number {
   return trades.reduce((s, t) => s + (t.brokerage ?? 0), 0);
-}
-
-export interface WeeklyTradePoint {
-  weekStart: string;
-  end: string;
-  label: string;
-  brokerage: number;
-  company: number;
-}
-
-export function weeklyTradeSeries(trades: Trade[], weekStarts: string[]): WeeklyTradePoint[] {
-  return weekStarts.map((weekStart) => {
-    const { start, end } = weekBounds(weekStart);
-    const brokerage = sumBrokerage(
-      trades.filter((t) => inDateRange(t.createdAt, start, end))
-    );
-    return {
-      weekStart,
-      end,
-      label: formatWeekRange(weekStart),
-      brokerage,
-      company: tradingSplit(brokerage).company,
-    };
-  });
 }
