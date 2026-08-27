@@ -58,10 +58,9 @@ export interface EmployeeReportRow {
 }
 
 /**
- * Deals-closed and handoff timing use each lead's updatedAt as an
- * approximation, since the schema doesn't track a separate closedAt /
- * handoffAt timestamp. Good enough for a weekly/monthly summary, not
- * an audit trail.
+ * Deals-closed timing uses Lead.closedAt (falls back to updatedAt for
+ * rows closed before that field existed). Handoffs use handoffAt with
+ * the same fallback.
  */
 export function buildEmployeeReport(
   leads: Lead[],
@@ -107,12 +106,12 @@ export function buildEmployeeReport(
         if (l.owner === username) {
           const stage = l.stage ?? "new";
           pipeline[stage] = (pipeline[stage] ?? 0) + 1;
-          if (l.stage === "closed" && inRange(dateOf(l.updatedAt))) {
+          if (l.stage === "closed" && inRange(dateOf(l.closedAt ?? l.updatedAt))) {
             dealsClosedCount++;
             dealsClosedValue += l.value ?? 0;
           }
         }
-        if (l.sourcedBy === username && l.owner && l.owner !== l.sourcedBy && inRange(dateOf(l.updatedAt))) {
+        if (l.sourcedBy === username && l.owner && l.owner !== l.sourcedBy && inRange(dateOf(l.handoffAt ?? l.updatedAt))) {
           handoffsToRM++;
         }
       });

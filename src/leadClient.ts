@@ -1,6 +1,7 @@
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser, fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth';
 import type { Schema } from '../amplify/data/resource';
+import { toISODateLocal } from './revenue';
 
 /**
  * ShubhDesk — data client
@@ -12,6 +13,27 @@ import type { Schema } from '../amplify/data/resource';
  */
 
 const client = generateClient<Schema>();
+
+/** Walk Amplify list() pages so the board/report never silently stop at the first page. */
+async function listAllPages<T>(
+  fetch: (nextToken?: string | null) => Promise<{
+    data?: Array<T | null> | null;
+    nextToken?: string | null;
+    errors?: unknown;
+  }>
+): Promise<T[]> {
+  const out: T[] = [];
+  let nextToken: string | null | undefined;
+  do {
+    const { data, errors, nextToken: nt } = await fetch(nextToken);
+    if (errors) throw errors;
+    for (const row of data ?? []) {
+      if (row) out.push(row);
+    }
+    nextToken = nt ?? null;
+  } while (nextToken);
+  return out;
+}
 
 // Stages owned by sales, mirroring the STAGES constant in App.tsx.
 const SALES_STAGES = ['new'];
@@ -53,18 +75,20 @@ export async function getMe(): Promise<{
  * an empty list if none exist yet.
  */
 export async function listRMs() {
-  const { data, errors } = await client.models.StaffProfile.list({
-    filter: { role: { eq: 'rm' } },
-  });
-  if (errors) throw errors;
-  return data;
+  return listAllPages((nextToken) =>
+    client.models.StaffProfile.list({
+      filter: { role: { eq: 'rm' } },
+      limit: 1000,
+      nextToken,
+    })
+  );
 }
 
 /** All staff profiles, to resolve usernames -> display names on cards. */
 export async function listStaff() {
-  const { data, errors } = await client.models.StaffProfile.list();
-  if (errors) throw errors;
-  return data;
+  return listAllPages((nextToken) =>
+    client.models.StaffProfile.list({ limit: 1000, nextToken })
+  );
 }
 
 /**
@@ -81,7 +105,21 @@ export async function ensureOwnStaffProfile(role: Role) {
     filter: { username: { eq: user.username } },
   });
   if (errors) throw errors;
-  if (existing.length > 0) return existing[0];
+  if (existing.length > 0) {
+    const row = existing[0];
+    // Cognito group is the source of truth; keep StaffProfile.role in
+    // sync so target strips and the RM picker don't use a stale role
+    // after someone is moved between groups.
+    if (row && row.role !== role) {
+      const { data, errors: updateErrors } = await client.models.StaffProfile.update({
+        id: row.id,
+        role,
+      });
+      if (updateErrors) throw updateErrors;
+      return data;
+    }
+    return row;
+  }
 
   let displayName = user.username;
   try {
@@ -104,9 +142,9 @@ export async function ensureOwnStaffProfile(role: Role) {
 
 /** All leads the signed-in user is allowed to see (server enforces this). */
 export async function listLeads() {
-  const { data, errors } = await client.models.Lead.list();
-  if (errors) throw errors;
-  return data;
+  return listAllPages((nextToken) =>
+    client.models.Lead.list({ limit: 1000, nextToken })
+  );
 }
 
 /**
@@ -171,11 +209,13 @@ export async function setFollowUp(leadId: string, date: string | null) {
  */
 export async function listFollowUpsDue(asOf?: string) {
   const cutoff = asOf ?? new Date().toISOString().slice(0, 10);
-  const { data, errors } = await client.models.Lead.list({
-    filter: { followUpOn: { le: cutoff } },
-  });
-  if (errors) throw errors;
-  return data;
+  return listAllPages((nextToken) =>
+    client.models.Lead.list({
+      filter: { followUpOn: { le: cutoff } },
+      limit: 1000,
+      nextToken,
+    })
+  );
 }
 
 const REJECTION_REASON_LABELS: Record<string, string> = {
@@ -206,8 +246,17 @@ export async function moveStage(
     newStage === 'meeting' && SALES_STAGES.includes(lead.stage ?? '') && !!rmUsername;
 
   const update: Record<string, unknown> = { id: lead.id, stage: newStage };
-  if (isHandoff) update.owner = rmUsername;
+  if (isHandoff) {
+    update.owner = rmUsername;
+    if (!lead.handoffAt) update.handoffAt = toISODateLocal();
+  }
   if (newStage === 'rejected' && rejectionReason) update.rejectionReason = rejectionReason;
+  if (newStage === 'closed' && lead.stage !== 'closed') {
+    update.closedAt = toISODateLocal();
+  }
+  if (lead.stage === 'closed' && newStage !== 'closed') {
+    update.closedAt = null;
+  }
 
   const { data, errors } = await client.models.Lead.update(update as any);
   if (errors) throw errors;
@@ -254,10 +303,13 @@ export async function addNote(
 
 /** Load a lead's activity log, oldest-first. */
 export async function listNotes(leadId: string) {
-  const { data, errors } = await client.models.Note.list({
-    filter: { leadId: { eq: leadId } },
-  });
-  if (errors) throw errors;
+  const data = await listAllPages((nextToken) =>
+    client.models.Note.list({
+      filter: { leadId: { eq: leadId } },
+      limit: 1000,
+      nextToken,
+    })
+  );
   return data.sort(
     (a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
   );

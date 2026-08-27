@@ -3,7 +3,10 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 /**
  * ShubhDesk — Data model
  * ---------------------------------------------------------------
- * Two models: Lead and Note (the activity-log entries).
+ * Pipeline: Lead + Note. Directory: StaffProfile. Codes: Counter.
+ * Dealer log: Trade (standalone). Quotas: CompanyTarget (shared
+ * individual numbers, one row per cadence) + Target (dealer weekly).
+ * Insurance company ₹: InsuranceRevenue (admin-entered).
  *
  * The ownership + read-only rules you asked for are enforced HERE,
  * on the server — not just hidden in the UI. That means even if
@@ -54,6 +57,18 @@ const schema = a.schema({
       // --- Win-back follow-up ---
       // Date to revisit a dormant/rejected client (YYYY-MM-DD).
       followUpOn: a.date(),
+
+      // Calendar date the lead was closed (YYYY-MM-DD, local). Set in
+      // moveStage when entering "closed"; cleared if it leaves closed.
+      // Monthly NCA/AUM/SIP actuals use this so a later edit (follow-up
+      // date, value, note-adjacent updates) cannot shift the close into
+      // another month via Amplify's automatic updatedAt.
+      closedAt: a.date(),
+
+      // Calendar date of the sales→RM handoff (YYYY-MM-DD). Set once
+      // when owner is reassigned into "meeting". Report handoff counts
+      // use this instead of updatedAt for the same reason as closedAt.
+      handoffAt: a.date(),
 
       // Who currently controls the lead. Amplify keeps this in sync
       // with the logged-in user identifier used by the owner rule.
@@ -137,12 +152,17 @@ const schema = a.schema({
       allow.ownerDefinedIn('owner'),
     ]),
 
-  // Per-employee quotas, one row per cadence. Same numbers for every
-  // sales/RM (not a company pool). Admin writes; any signed-in staff can
-  // read so their board strip can show personal actuals vs these goals.
+  // Company-set individual quotas, one row per cadence. Same numbers
+  // for every sales/RM (not a team pool, not per-person rows). Do not
+  // rename this model — Amplify would create a new table and drop the
+  // three existing rows. If quotas ever need to differ by person, add
+  // `username` to the identifier then; don't pre-split the table now.
   CompanyTarget: a
     .model({
-      periodType: a.string().required(), // "monthly" | "quarterly" | "yearly"
+      // Keep as string (not enum): this field is the DynamoDB key.
+      // Changing its GraphQL type would risk a table rebuild. Valid
+      // values are enforced in upsertCompanyTarget: monthly | quarterly | yearly.
+      periodType: a.string().required(),
       ncaTarget: a.integer().default(0),         // New Client Acquisition (count)
       aumTarget: a.integer().default(0),         // AUM in ₹
       sipTarget: a.integer().default(0),         // SIP in ₹

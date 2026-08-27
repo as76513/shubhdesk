@@ -37,6 +37,11 @@ export function inDateRange(iso: string | null | undefined, start: string, end: 
   return !!d && d >= start && d <= end;
 }
 
+/** Close date for period actuals. Falls back to updatedAt for leads closed before closedAt existed. */
+export function closedOn(lead: Lead): string | null | undefined {
+  return lead.closedAt ?? lead.updatedAt;
+}
+
 /** Local calendar YYYY-MM-DD — avoids UTC-shift off-by-ones in IST. */
 export function toISODateLocal(d: Date = new Date()): string {
   const y = d.getFullYear();
@@ -77,7 +82,7 @@ export function closedLeadCountFor(
   return leads.filter(
     (l) =>
       l.stage === "closed" &&
-      inDateRange(l.updatedAt, range.start, range.end) &&
+      inDateRange(closedOn(l), range.start, range.end) &&
       (l.owner === username || l.sourcedBy === username)
   ).length;
 }
@@ -239,6 +244,17 @@ export function companyTargetOf(
   };
 }
 
+/** Company-level quota = per-person quota × number of sales/RM. */
+export function scaleTargets(target: MetricTargets, people: number): MetricTargets {
+  const n = Math.max(1, people);
+  return {
+    ncaTarget: target.ncaTarget * n,
+    aumTarget: target.aumTarget * n,
+    sipTarget: target.sipTarget * n,
+    insuranceTarget: target.insuranceTarget * n,
+  };
+}
+
 export interface CompanyActuals {
   nca: number;
   aum: number;
@@ -257,7 +273,7 @@ export function companyActualsFor(
   range: { start: string; end: string }
 ): CompanyActuals {
   const closed = leads.filter(
-    (l) => l.stage === "closed" && inDateRange(l.updatedAt, range.start, range.end)
+    (l) => l.stage === "closed" && inDateRange(closedOn(l), range.start, range.end)
   );
   return {
     nca: closed.length,

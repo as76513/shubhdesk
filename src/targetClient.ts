@@ -1,5 +1,6 @@
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../amplify/data/resource";
+import type { PeriodType } from "./revenue";
 
 /**
  * CRUD for weekly Target rows and admin-entered InsuranceRevenue.
@@ -9,16 +10,38 @@ import type { Schema } from "../amplify/data/resource";
 
 const client = generateClient<Schema>();
 
+const PERIOD_TYPES: PeriodType[] = ["monthly", "quarterly", "yearly"];
+
+async function listAllPages<T>(
+  fetch: (nextToken?: string | null) => Promise<{
+    data?: Array<T | null> | null;
+    nextToken?: string | null;
+    errors?: unknown;
+  }>
+): Promise<T[]> {
+  const out: T[] = [];
+  let nextToken: string | null | undefined;
+  do {
+    const { data, errors, nextToken: nt } = await fetch(nextToken);
+    if (errors) throw errors;
+    for (const row of data ?? []) {
+      if (row) out.push(row);
+    }
+    nextToken = nt ?? null;
+  } while (nextToken);
+  return out;
+}
+
 export async function listTargets() {
-  const { data, errors } = await client.models.Target.list({ limit: 1000 });
-  if (errors) throw errors;
-  return data;
+  return listAllPages((nextToken) =>
+    client.models.Target.list({ limit: 1000, nextToken })
+  );
 }
 
 export async function listCompanyTargets() {
-  const { data, errors } = await client.models.CompanyTarget.list({ limit: 10 });
-  if (errors) throw errors;
-  return data;
+  return listAllPages((nextToken) =>
+    client.models.CompanyTarget.list({ limit: 10, nextToken })
+  );
 }
 
 export async function upsertCompanyTarget(input: {
@@ -28,6 +51,9 @@ export async function upsertCompanyTarget(input: {
   sipTarget: number;
   insuranceTarget: number;
 }) {
+  if (!PERIOD_TYPES.includes(input.periodType as PeriodType)) {
+    throw new Error(`periodType must be monthly, quarterly, or yearly (got "${input.periodType}")`);
+  }
   const existing = await client.models.CompanyTarget.get({ periodType: input.periodType });
   if (existing.errors) throw existing.errors;
 
@@ -64,9 +90,9 @@ export async function upsertTarget(input: {
 }
 
 export async function listInsuranceRevenue() {
-  const { data, errors } = await client.models.InsuranceRevenue.list({ limit: 1000 });
-  if (errors) throw errors;
-  return data;
+  return listAllPages((nextToken) =>
+    client.models.InsuranceRevenue.list({ limit: 1000, nextToken })
+  );
 }
 
 export async function createInsuranceRevenue(input: {

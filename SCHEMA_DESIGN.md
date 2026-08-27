@@ -34,7 +34,26 @@ Every lead ever created lives as a separate **item** inside the single `Lead` ta
 - `Note.leadId` + `Note.lead = a.belongsTo('Lead', 'leadId')`, mirrored by `Lead.notes = a.hasMany('Note', 'leadId')`.
 - This is the only real relationship in the schema. Amplify auto-creates a secondary index on `Note.leadId` to back it, so "all notes for this lead" (`listNotes(leadId)` in `src/leadClient.ts`) is an efficient indexed query, not a table scan.
 - Nothing else references anything else — `StaffProfile.username` and `Lead.owner`/`sourcedBy` are plain strings matched against the Cognito identity at the authorization layer, not a foreign key DynamoDB itself enforces.
-- `Trade` deliberately has **no** relationship to `Lead`, even though both ultimately trace back to a client — this was an explicit design choice (dealers work standalone from the sales pipeline), not an oversight. If that ever needs to change (e.g., linking a trade back to the lead that generated it), that's a new `leadId` field + `@belongsTo`/`@hasMany` pair, same pattern as `Note`.
+- `Trade` deliberately has **no** relationship to `Lead`, even though both ultimately trace back to a client — this was an explicit design choice (dealers work standalone from the sales pipeline), not an oversight. If that ever needs to change (e.g., linking a trade back to the lead that generated it), that's a new `leadId` field + `@belongsTo`/`@hasMany` pair, same pattern as `Note`. Do not add that unless the business asks; it is not a missing join.
+
+## Dates that must not ride on `updatedAt`
+
+Amplify stamps `createdAt` / `updatedAt` on every model. **Do not use `updatedAt` as "when this deal closed"** — any later edit (follow-up date, value, owner) moves the lead into a different month and corrupts NCA/AUM/SIP.
+
+| Field | When it is set | Used for |
+|---|---|---|
+| `Lead.closedAt` | `moveStage` into `closed` (cleared if it leaves closed) | monthly/quarter/year actuals, CSV deals-closed |
+| `Lead.handoffAt` | first sales→RM handoff | CSV handoff count |
+| `Lead.followUpOn` | admin/RM win-back date | Follow-ups Due view |
+| `InsuranceRevenue.earnedOn` | admin-entered | insurance actuals |
+
+Rows closed before `closedAt` existed fall back to `updatedAt` in `closedOn()` (`src/revenue.ts`).
+
+## CompanyTarget is a quota template, not a per-person table
+
+Three rows (`monthly` / `quarterly` / `yearly`). Every sales/RM is measured against those same numbers; actuals are filtered per person in the client. **Do not rename the model** (Amplify would provision a new table and leave the old rows behind). **Do not change `periodType` from string to enum** — it is the DynamoDB key; valid values are enforced in `upsertCompanyTarget`. If quotas ever need to differ by employee, that is a *new* identifier (`username` + `periodType`), a data backfill, and a UI to edit per person — not a silent tweak to the three existing rows.
+
+`Target` (weekly, per username) stays for the dealer GoalsStrip. Leave it; do not merge it into CompanyTarget.
 
 ## Access patterns (what the app actually queries)
 
@@ -42,16 +61,16 @@ Every read the app does, and whether it's an efficient indexed `Query` or a `Sca
 
 | Function (`src/leadClient.ts`) | What it does | Query or Scan |
 |---|---|---|
-| `listLeads()` | all leads the caller is authorized to see (role filtering happens client-side in `App.tsx`'s `visibleLeads`) | Scan (whole table, auth-filtered server-side per item) |
-| `listNotes(leadId)` | notes for one lead | **Query** via the `leadId` GSI from `@belongsTo` |
-| `listFollowUpsDue(asOf)` | leads with `followUpOn <= asOf` | Scan + filter — no index on `followUpOn` |
-| `listRMs()` | `StaffProfile` where `role = 'rm'` | Scan + filter — no index on `role` |
-| `listStaff()` | all staff | Scan (whole table) |
+| `listLeads()` | all leads the caller is authorized to see (role filtering happens client-side in `App.tsx`'s `visibleLeads`) | Scan, **paginated** (`listAllPages`, 1000/page) |
+| `listNotes(leadId)` | notes for one lead | Scan + filter on `leadId` (GSI from `@belongsTo` exists; list still uses filter + pagination so deleteLead cannot miss notes past the first page) |
+| `listFollowUpsDue(asOf)` | leads with `followUpOn <= asOf` | Scan + filter — no index on `followUpOn`; paginated |
+| `listRMs()` | `StaffProfile` where `role = 'rm'` | Scan + filter — no index on `role`; paginated |
+| `listStaff()` | all staff | Scan; paginated |
 | `nextClientCode()` | get/update the `Counter` row for the current `period` | **Query/Get** by primary key — efficient by design |
 | `listTrades()` (`src/tradeClient.ts`) | trades the caller owns, or all trades for admin (role filtering is server-side via the `Trade` auth rule, same as Lead) | Scan (whole table, auth-filtered per item) |
-| `listTargets()` (`src/targetClient.ts`) | weekly targets the caller may see (own row for employees; all for admin) | Scan (whole table, auth-filtered) |
-| `listCompanyTargets()` (`src/targetClient.ts`) | the three company-wide cadence rows (monthly / quarterly / yearly) | Scan (3 rows) |
-| `listInsuranceRevenue()` (`src/targetClient.ts`) | admin-entered insurance company revenue (own rows for employees; all for admin) | Scan (whole table, auth-filtered) |
+| `listTargets()` (`src/targetClient.ts`) | weekly targets the caller may see (own row for employees; all for admin) | Scan; paginated |
+| `listCompanyTargets()` (`src/targetClient.ts`) | the three cadence quota rows (monthly / quarterly / yearly) | Scan (3 rows); paginated |
+| `listInsuranceRevenue()` (`src/targetClient.ts`) | admin-entered insurance company revenue (own rows for employees; all for admin) | Scan; paginated |
 
 The two scan-and-filter patterns (`followUpOn`, `role`) are fine today: `StaffProfile` will only ever hold a handful of rows (team size), and `Lead` volume for a ~10-person team's pipeline is small. If lead volume ever grows into the thousands, the fix is a **GSI** on `followUpOn` (and possibly `stage`) so `listFollowUpsDue` becomes an indexed query instead of a full scan — not a schema rewrite, just an added index.
 
@@ -68,7 +87,7 @@ Each model's `.authorization((allow) => [...])` block *is* the access-pattern de
 - **`Counter`**: `allow.group('admin')` for writes, `allow.authenticated().to(['read','create','update'])` for everyone (any staff member creating a lead needs to bump the sequence).
 - **`Note`**: `allow.group('admin')` + `allow.authenticated().to(['read','create'])` (notes are cheap and shared; the sensitive control point is `Lead`, not `Note`).
 - **`Trade`**: `allow.group('admin')` + `allow.ownerDefinedIn('owner')` — no group-level read for anyone else, unlike `Lead`'s `rm` read rule. A dealer's trades are private to them and admin; there's no equivalent of RMs "seeing incoming handoffs" here because there's no handoff into `Trade` at all.
-- **`CompanyTarget`**: `allow.group('admin')` full control + `allow.authenticated().to(['read'])`. Identifier is `periodType` — three rows total. Same quota numbers for every sales/RM (individual, not a team pool).
+- **`CompanyTarget`**: `allow.group('admin')` full control + `allow.authenticated().to(['read'])`. Identifier is `periodType` — three rows total. Same quota numbers for every sales/RM (individual, not a team pool). Valid `periodType` values enforced in `upsertCompanyTarget`, not as a GraphQL enum on the key.
 - **`Target`**: `allow.group('admin')` full control + `allow.ownerDefinedIn('username').to(['read'])`. Composite identifier `['username', 'weekStart']` so saving the same employee+week is an update, not a second row. Legacy weekly employee strip.
 - **`InsuranceRevenue`**: same auth as Target (admin writes, employee reads own). Trading revenue is **not** stored here — it is derived from `Trade.brokerage` in `src/revenue.ts`. Only Insurance needs a manual company-revenue amount.
 

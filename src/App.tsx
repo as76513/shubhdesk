@@ -62,6 +62,8 @@ import {
   yearBounds,
   companyTargetOf,
   personActualsFor,
+  companyActualsFor,
+  scaleTargets,
   periodRangeFor,
   hitAnyMetric,
   DEFAULT_COMPANY_TARGETS,
@@ -302,6 +304,16 @@ export default function App() {
     [me, leads, insuranceRevenue, viewMonthRange]
   );
 
+  const companyMonthActuals = useMemo(
+    () => companyActualsFor(leads, insuranceRevenue, viewMonthRange),
+    [leads, insuranceRevenue, viewMonthRange]
+  );
+
+  const companyMonthTarget = useMemo(
+    () => scaleTargets(monthlyTarget, pipelineStaff(staff).length),
+    [monthlyTarget, staff]
+  );
+
   const myTarget = useMemo(
     () => (me ? findTarget(targets, me.username, thisWeek.start) : undefined),
     [me, targets, thisWeek.start]
@@ -330,8 +342,11 @@ export default function App() {
   }, [myTarget, myClosed, myRevenue]);
 
   const hitMonthlyTarget = useMemo(
-    () => hitAnyMetric(myMonthActuals, monthlyTarget),
-    [myMonthActuals, monthlyTarget]
+    () =>
+      me?.role === "admin"
+        ? hitAnyMetric(companyMonthActuals, companyMonthTarget)
+        : hitAnyMetric(myMonthActuals, monthlyTarget),
+    [me, companyMonthActuals, companyMonthTarget, myMonthActuals, monthlyTarget]
   );
 
   function canEdit(lead: Lead) {
@@ -572,17 +587,18 @@ export default function App() {
         <StatBar stats={stats} totalBrokerage={me?.role === "admin" ? monthBrokerage : undefined} />
         {me?.role === "admin" ? (
           view !== "trades" && view !== "targets" ? (
-            <EmployeeTargetBoard
-              staff={staff}
-              leads={leads}
-              insurance={insuranceRevenue}
-              month={viewMonth}
-              onMonthChange={setViewMonth}
-              cadence="monthly"
-              onCadenceChange={setViewCadence}
-              target={monthlyTarget}
-              showCadencePills={false}
-            />
+            <>
+              {hitMonthlyTarget && (
+                <div style={S.celebrateBanner}>Company monthly target hit — well done.</div>
+              )}
+              <CompanyProgressStrip
+                month={viewMonth}
+                onMonthChange={setViewMonth}
+                actuals={companyMonthActuals}
+                target={companyMonthTarget}
+                people={pipelineStaff(staff).length}
+              />
+            </>
           ) : null
         ) : (
           <>
@@ -896,23 +912,6 @@ function TargetMetrics({
   );
 }
 
-function TargetStrip({
-  title,
-  actuals,
-  target,
-}: {
-  title: string;
-  actuals: CompanyActuals;
-  target: MetricTargets;
-}) {
-  return (
-    <div style={{ ...S.statCard, marginBottom: 12 }}>
-      <div style={{ ...S.statLabel, marginTop: 0, marginBottom: 4 }}>{title}</div>
-      <TargetMetrics actuals={actuals} target={target} />
-    </div>
-  );
-}
-
 function CadenceToolbar({
   label,
   month,
@@ -948,55 +947,29 @@ function pipelineStaff(staff: Staff[]): Staff[] {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-function EmployeeTargetBoard({
-  staff,
-  leads,
-  insurance,
+function CompanyProgressStrip({
   month,
   onMonthChange,
-  cadence,
-  onCadenceChange,
+  actuals,
   target,
-  showMonthNav = true,
-  showCadencePills = true,
+  people,
 }: {
-  staff: Staff[];
-  leads: Lead[];
-  insurance: InsuranceRevenue[];
   month: string;
   onMonthChange: (m: string) => void;
-  cadence: PeriodType;
-  onCadenceChange: (p: PeriodType) => void;
+  actuals: CompanyActuals;
   target: MetricTargets;
-  showMonthNav?: boolean;
-  showCadencePills?: boolean;
+  people: number;
 }) {
-  const range = periodRangeFor(cadence, month);
-  const people = pipelineStaff(staff);
-  const heading = cadence === "monthly" ? `Monthly progress — ${range.label}` : `Progress by employee — ${range.label}`;
   return (
-    <div style={{ marginBottom: 16 }}>
-      <CadenceToolbar
-        label={heading}
-        month={month}
-        onMonthChange={onMonthChange}
-        cadence={cadence}
-        onCadenceChange={onCadenceChange}
-        showMonthNav={showMonthNav}
-        showCadencePills={showCadencePills}
-      />
-      {people.length === 0 ? (
-        <div style={S.empty}>No sales or RM profiles yet — strips appear once staff log in.</div>
-      ) : (
-        people.map((p) => (
-          <TargetStrip
-            key={p.username}
-            title={`${p.displayName} (${p.role})`}
-            actuals={personActualsFor(p.username, leads, insurance, range)}
-            target={target}
-          />
-        ))
-      )}
+    <div style={{ ...S.statCard, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+        <div style={{ ...S.statLabel, marginTop: 0 }}>Company targets — {formatMonthLong(month)}</div>
+        <MonthNav month={month} onChange={onMonthChange} />
+      </div>
+      <div style={S.hint}>
+        Sum of individual quotas across {people} sales/RM. Each closed deal counts once for the company.
+      </div>
+      <TargetMetrics actuals={actuals} target={target} />
     </div>
   );
 }
