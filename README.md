@@ -131,9 +131,10 @@ after a confirmation that shows client code + name.
 the Lead pipeline above. A Dealer's entire screen is a simple log of
 trades: **Client Name, Buying Lot, Brokerage**, plus **Account Opened
 By**. No stages, no board. A dealer sees and manages only their own
-trades. They see **This Month's Incentive** (their dealer payout for
-the current calendar month). There is no weekly incentive or revenue
-quota.
+trades. They see **This Month's Incentive** (current calendar month)
+and **Your Revenue** for the selected period (Day / week / month).
+They do **not** see Total Brokerage or Company Revenue — those are
+admin-only. There is no weekly incentive or revenue quota.
 
 Admins get an extra **Trades** tab showing every dealer's trades, with:
 
@@ -312,7 +313,7 @@ From `Trade.brokerage`:
 3. If **Account Opened By** is someone other than OWN / this dealer:
    that 30% is multiplied by **0.5**.
 
-The top **Dealer / Employee Revenue** card is step 2 **without**
+The top **Dealer / Employee Revenue** card (admin Trades tab) is step 2 **without**
 step 3 (full 30% pool). Per-trade **Dealer ₹** and the Dealer
 Brokerage payout column **do** apply step 3.
 

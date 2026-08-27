@@ -189,22 +189,26 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
   return lines.join("\n");
 }
 
-/** CSV of trades in a date range (inclusive YYYY-MM-DD). Optional name resolver for the Dealer column. */
+/** CSV of trades in a date range (inclusive YYYY-MM-DD). Optional name resolver for the Dealer column.
+ *  Dealers downloading their own log omit brokerage and company ₹. */
 export function tradesToCSV(
   trades: Trade[],
   range: { start: string; end: string },
-  dealerName?: (username?: string | null) => string
+  dealerName?: (username?: string | null) => string,
+  dealerOnly?: boolean
 ): string {
-  const header = [
-    "Date",
-    "Dealer",
-    "Client Name",
-    "Buying Lot",
-    "Account Opened By",
-    "Brokerage (INR)",
-    "Company Revenue (INR)",
-    "Dealer Revenue (INR)",
-  ];
+  const header = dealerOnly
+    ? ["Date", "Client Name", "Buying Lot", "Account Opened By", "Your Revenue (INR)"]
+    : [
+        "Date",
+        "Dealer",
+        "Client Name",
+        "Buying Lot",
+        "Account Opened By",
+        "Brokerage (INR)",
+        "Company Revenue (INR)",
+        "Dealer Revenue (INR)",
+      ];
   const lines = [header.map(csvEscape).join(",")];
   trades
     .filter((t) => {
@@ -220,16 +224,19 @@ export function tradesToCSV(
         ? (dealerName ? dealerName(t.accountOpenedBy) : (t.accountOpenedBy ?? ""))
         : "OWN";
       lines.push(
-        [
-          date,
-          dealerName ? dealerName(t.owner) : (t.owner ?? ""),
-          t.clientName,
-          t.buyingLot ?? "",
-          opened,
-          brokerage,
-          split.company,
-          split.dealer,
-        ].map(csvEscape).join(",")
+        (dealerOnly
+          ? [date, t.clientName, t.buyingLot ?? "", opened, split.dealer]
+          : [
+              date,
+              dealerName ? dealerName(t.owner) : (t.owner ?? ""),
+              t.clientName,
+              t.buyingLot ?? "",
+              opened,
+              brokerage,
+              split.company,
+              split.dealer,
+            ]
+        ).map(csvEscape).join(",")
       );
     });
   return lines.join("\n");

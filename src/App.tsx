@@ -1443,7 +1443,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
   );
 
   function download() {
-    const csv = tradesToCSV(trades, range, nameOf);
+    const csv = tradesToCSV(trades, range, nameOf, !isAdmin);
     const stamp = range.start === range.end ? range.start : `${range.start}_to_${range.end}`;
     downloadCSV(`shubhdesk-trades-${stamp}.csv`, csv);
   }
@@ -1451,6 +1451,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
   const totalBrokerage = sumBrokerage(periodTrades);
   const companyRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0).company, 0);
   const dealerEmployeeRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0).dealer, 0);
+  const dealerPayout = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
   const byDealer = useMemo(() => {
     const map = new Map<string, { count: number; brokerage: number; payout: number }>();
     periodTrades.forEach((t) => {
@@ -1503,29 +1504,40 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
       </div>
 
       <div style={{ ...S.statBar, marginBottom: 16 }}>
-        <div style={S.statCard}>
-          <div style={S.statValue}>{rupee(totalBrokerage)}</div>
-          <div style={S.statLabel}>Total Brokerage — {range.label}</div>
-        </div>
-        <div style={S.statCard}>
-          <div style={S.statValue}>{rupee(companyRevenue)}</div>
-          <div style={S.statLabel}>Company Revenue (after 20% platform)</div>
-        </div>
-        <div style={S.statCard}>
-          <div style={S.statValue}>{rupee(dealerEmployeeRevenue)}</div>
-          <div style={S.statLabel}>Dealer / Employee Revenue</div>
-        </div>
+        {isAdmin && (
+          <>
+            <div style={S.statCard}>
+              <div style={S.statValue}>{rupee(totalBrokerage)}</div>
+              <div style={S.statLabel}>Total Brokerage — {range.label}</div>
+            </div>
+            <div style={S.statCard}>
+              <div style={S.statValue}>{rupee(companyRevenue)}</div>
+              <div style={S.statLabel}>Company Revenue (after 20% platform)</div>
+            </div>
+            <div style={S.statCard}>
+              <div style={S.statValue}>{rupee(dealerEmployeeRevenue)}</div>
+              <div style={S.statLabel}>Dealer / Employee Revenue</div>
+            </div>
+          </>
+        )}
+        {!isAdmin && (
+          <div style={S.statCard}>
+            <div style={S.statValue}>{rupee(dealerPayout)}</div>
+            <div style={S.statLabel}>Your Revenue — {range.label}</div>
+          </div>
+        )}
         <div style={S.statCard}>
           <div style={S.statValue}>{periodTrades.length}</div>
           <div style={S.statLabel}>Trades — {range.label}</div>
         </div>
       </div>
 
+      {isAdmin && (
       <div style={S.drawerSection}>
         <div style={S.sectionLabel}>Dealer Brokerage — {range.label}</div>
         <div style={S.hint}>
           Dealer payout is 30% of company revenue. If Account Opened By is someone else, that payout is multiplied by 0.5.
-          {isAdmin ? " Set Account Opened By on each trade below and save." : ""}
+          Set Account Opened By on each trade below and save.
         </div>
         <div style={S.list}>
           <div style={{ ...S.listRow, cursor: "default" }}>
@@ -1545,6 +1557,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           {byDealer.length === 0 && <div style={S.empty}>No trades logged in this period.</div>}
         </div>
       </div>
+      )}
 
       <div style={S.sectionLabel}>All Trades</div>
       <div style={S.list}>
@@ -1554,8 +1567,8 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           <div style={{ ...th, flex: 1.6 }}>Client Name</div>
           <div style={{ ...th, flex: 1.4 }}>Buying Lot</div>
           <div style={{ ...th, flex: 1.8 }}>Account Opened By</div>
-          <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>
-          <div style={{ ...th, flex: 1, textAlign: "right" }}>Dealer ₹</div>
+          {isAdmin && <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>}
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>{isAdmin ? "Dealer ₹" : "Your ₹"}</div>
           <div style={{ width: 66 }} />
         </div>
         {trades.map((t) => {
@@ -1588,7 +1601,9 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
                   </span>
                 )}
               </div>
-              <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</div>
+              {isAdmin && (
+                <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</div>
+              )}
               <div style={{ flex: 1, textAlign: "right", fontWeight: 600, color: openedByOther(t) ? "#B45309" : "#07163F" }}>{rupee(split.dealer)}</div>
               <div style={{ width: 66, textAlign: "right" }}>
                 <button className="ghost sm" onClick={() => onDelete(t.id)}>Delete</button>
