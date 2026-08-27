@@ -53,6 +53,17 @@ import {
   progressColor,
   tradingSplit,
   insuranceSplit,
+  monthBounds,
+  lastMonthBounds,
+  sameDayLastMonth,
+  lastNWeekStarts,
+  weeklyTradeSeries,
+  tradePeriodRange,
+  sumBrokerage,
+  inDateRange,
+  toISODateLocal,
+  formatMonthLabel,
+  type TradePeriod,
 } from "./revenue";
 import type { Schema } from "../amplify/data/resource";
 
@@ -228,13 +239,12 @@ export default function App() {
     };
   }, [visibleLeads]);
 
-  // Total brokerage across all trades logged today. Only meaningful for
-  // admin (the only non-dealer role with Trade visibility) -- sales/rm
-  // never load trades, so this stays 0 and is simply not shown for them.
-  const todayBrokerage = useMemo(() => {
-    const today = todayISO();
+  // Month-to-date brokerage. Only shown for admin (the only non-dealer
+  // role with Trade visibility) -- sales/rm never load trades.
+  const monthBrokerage = useMemo(() => {
+    const { start, end } = monthBounds();
     return trades
-      .filter((t) => (t.createdAt ?? "").slice(0, 10) === today)
+      .filter((t) => inDateRange(t.createdAt, start, end))
       .reduce((s, t) => s + (t.brokerage ?? 0), 0);
   }, [trades]);
 
@@ -490,7 +500,7 @@ export default function App() {
           </div>
         )}
 
-        <StatBar stats={stats} totalBrokerage={me?.role === "admin" ? todayBrokerage : undefined} />
+        <StatBar stats={stats} totalBrokerage={me?.role === "admin" ? monthBrokerage : undefined} />
         {hitWeeklyTarget && (
           <div style={S.celebrateBanner}>Weekly target hit — well done.</div>
         )}
@@ -547,6 +557,7 @@ export default function App() {
           <TradesView
             trades={trades}
             nameOf={nameOf}
+            showAnalytics
             onCreate={handleCreateTrade}
             onUpdate={handleUpdateTrade}
             onDelete={handleDeleteTrade}
@@ -648,7 +659,9 @@ function StatBar({ stats, totalBrokerage }: { stats: any; totalBrokerage?: numbe
     { label: "Active", value: stats.active },
     { label: "Closed Won", value: stats.closed },
     { label: "Pipeline Value", value: rupee(stats.pipelineValue) },
-    ...(totalBrokerage != null ? [{ label: "Total Brokerage (Today)", value: rupee(totalBrokerage) }] : []),
+    ...(totalBrokerage != null
+      ? [{ label: `Total Brokerage (${formatMonthLabel(toISODateLocal())})`, value: rupee(totalBrokerage) }]
+      : []),
   ];
   return (
     <div style={S.statBar}>
@@ -1083,14 +1096,16 @@ function Field({ label, required, children }: { label: string; required?: boolea
   );
 }
 
-function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
+function TradesView({ trades, nameOf, showAnalytics, onCreate, onUpdate, onDelete }: {
   trades: Trade[];
   nameOf: (u?: string | null) => string;
+  showAnalytics?: boolean;
   onCreate: (input: { clientName: string; buyingLot?: string; brokerage?: number }) => Promise<boolean>;
   onUpdate: (input: { id: string; clientName: string; buyingLot?: string; brokerage?: number }) => Promise<boolean>;
   onDelete: (id: string) => void;
 }) {
   const [editing, setEditing] = useState<Trade | "new" | null>(null);
+  const [period, setPeriod] = useState<TradePeriod>("thisMonth");
   const [downloadDate, setDownloadDate] = useState(todayISO());
 
   async function handleSave(input: { clientName: string; buyingLot?: string; brokerage?: number }) {
@@ -1098,20 +1113,23 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
     if (ok) setEditing(null);
   }
 
+  const range = tradePeriodRange(period, downloadDate);
+  const periodTrades = useMemo(
+    () => trades.filter((t) => inDateRange(t.createdAt, range.start, range.end)),
+    [trades, range.start, range.end]
+  );
+
   function download() {
-    const csv = tradesToCSV(trades, downloadDate);
-    downloadCSV(`shubhdesk-trades-${downloadDate}.csv`, csv);
+    const csv = tradesToCSV(trades, range, nameOf);
+    const stamp = range.start === range.end ? range.start : `${range.start}_to_${range.end}`;
+    downloadCSV(`shubhdesk-trades-${stamp}.csv`, csv);
   }
 
-  const dayTrades = useMemo(
-    () => trades.filter((t) => (t.createdAt ?? "").slice(0, 10) === downloadDate),
-    [trades, downloadDate]
-  );
-  const totalBrokerage = dayTrades.reduce((s, t) => s + (t.brokerage ?? 0), 0);
+  const totalBrokerage = sumBrokerage(periodTrades);
   const { company: companyRevenue, dealer: dealerRevenue } = tradingSplit(totalBrokerage);
   const byDealer = useMemo(() => {
     const map = new Map<string, { count: number; total: number }>();
-    dayTrades.forEach((t) => {
+    periodTrades.forEach((t) => {
       const key = t.owner ?? "unknown";
       const cur = map.get(key) ?? { count: 0, total: 0 };
       cur.count += 1;
@@ -1121,20 +1139,42 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
     return Array.from(map.entries())
       .map(([owner, v]) => ({ owner, ...v }))
       .sort((a, b) => b.total - a.total);
-  }, [dayTrades]);
+  }, [periodTrades]);
+
+  const PERIODS: { id: TradePeriod; label: string }[] = [
+    { id: "day", label: "Day" },
+    { id: "thisWeek", label: "This week" },
+    { id: "thisMonth", label: "This month" },
+    { id: "lastMonth", label: "Last month" },
+  ];
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <input type="date" className="ninput" style={{ width: "auto" }} value={downloadDate} onChange={(e) => setDownloadDate(e.target.value)} />
-        <button className="ghost" onClick={download}>⬇ Download Day's Trades</button>
+        <div style={S.periodGroup}>
+          {PERIODS.map((p) => (
+            <button
+              key={p.id}
+              className={period === p.id ? "periodbtn active" : "periodbtn"}
+              onClick={() => setPeriod(p.id)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {period === "day" && (
+          <input type="date" className="ninput" style={{ width: "auto" }} value={downloadDate} onChange={(e) => setDownloadDate(e.target.value)} />
+        )}
+        <button className="ghost" onClick={download}>⬇ Download {range.label}</button>
         <button className="primary" onClick={() => setEditing("new")}>+ New Trade</button>
       </div>
+
+      {showAnalytics && <BrokerageAnalytics trades={trades} />}
 
       <div style={{ ...S.statBar, marginBottom: 16 }}>
         <div style={S.statCard}>
           <div style={S.statValue}>{rupee(totalBrokerage)}</div>
-          <div style={S.statLabel}>Total Brokerage — {downloadDate}</div>
+          <div style={S.statLabel}>Total Brokerage — {range.label}</div>
         </div>
         <div style={S.statCard}>
           <div style={S.statValue}>{rupee(companyRevenue)}</div>
@@ -1145,13 +1185,13 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
           <div style={S.statLabel}>Dealer Revenue (30% of company)</div>
         </div>
         <div style={S.statCard}>
-          <div style={S.statValue}>{dayTrades.length}</div>
-          <div style={S.statLabel}>Trades — {downloadDate}</div>
+          <div style={S.statValue}>{periodTrades.length}</div>
+          <div style={S.statLabel}>Trades — {range.label}</div>
         </div>
       </div>
 
       <div style={S.drawerSection}>
-        <div style={S.sectionLabel}>Dealer Brokerage — {downloadDate}</div>
+        <div style={S.sectionLabel}>Dealer Brokerage — {range.label}</div>
         <div style={S.list}>
           <div style={{ ...S.listRow, cursor: "default" }}>
             <div style={{ flex: 2, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: ".4px" }}>Dealer</div>
@@ -1165,7 +1205,7 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
               <div style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(d.total)}</div>
             </div>
           ))}
-          {byDealer.length === 0 && <div style={S.empty}>No trades logged on this date.</div>}
+          {byDealer.length === 0 && <div style={S.empty}>No trades logged in this period.</div>}
         </div>
       </div>
 
@@ -1200,6 +1240,143 @@ function TradesView({ trades, nameOf, onCreate, onUpdate, onDelete }: {
           onClose={() => setEditing(null)}
           onSave={handleSave}
         />
+      )}
+    </div>
+  );
+}
+
+function BrokerageAnalytics({ trades }: { trades: Trade[] }) {
+  const [open, setOpen] = useState(true);
+  const weeks = useMemo(() => weeklyTradeSeries(trades, lastNWeekStarts(5)), [trades]);
+
+  const thisMonth = monthBounds();
+  const lastMonth = lastMonthBounds();
+  const today = toISODateLocal();
+  const thisMonthTrades = trades.filter((t) => inDateRange(t.createdAt, thisMonth.start, thisMonth.end));
+  const lastMonthTrades = trades.filter((t) => inDateRange(t.createdAt, lastMonth.start, lastMonth.end));
+  const thisCompany = tradingSplit(sumBrokerage(thisMonthTrades)).company;
+  const lastCompany = tradingSplit(sumBrokerage(lastMonthTrades)).company;
+  const vsLastFull = lastCompany > 0 ? Math.round(((thisCompany - lastCompany) / lastCompany) * 100) : null;
+
+  const paceEnd = sameDayLastMonth(today);
+  const lastPaceTrades = trades.filter((t) => inDateRange(t.createdAt, lastMonth.start, paceEnd));
+  const lastPaceCompany = tradingSplit(sumBrokerage(lastPaceTrades)).company;
+  const vsPace = lastPaceCompany > 0 ? Math.round(((thisCompany - lastPaceCompany) / lastPaceCompany) * 100) : null;
+
+  const deltaColor = (n: number | null) => (n == null ? "#6B7280" : n >= 0 ? "#15803D" : "#DC2626");
+  const deltaText = (n: number | null) => (n == null ? "—" : `${n >= 0 ? "+" : ""}${n}%`);
+
+  return (
+    <div style={S.chartPanel}>
+      <button className="chartToggle" onClick={() => setOpen((v) => !v)}>
+        <span>{open ? "▾" : "▸"} Weekly company revenue</span>
+        <span style={{ fontWeight: 500, color: "#6B7280", fontSize: 12 }}>Last 5 weeks · this month vs last month</span>
+      </button>
+      {open && (
+        <div style={{ padding: "4px 18px 18px" }}>
+          <div style={S.compareRow}>
+            <div style={S.compareCard}>
+              <div style={S.statLabel}>This month (so far)</div>
+              <div style={S.statValue}>{rupee(thisCompany)}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4, color: deltaColor(vsLastFull) }}>
+                {deltaText(vsLastFull)} vs last month full
+              </div>
+            </div>
+            <div style={S.compareCard}>
+              <div style={S.statLabel}>Last month (full)</div>
+              <div style={S.statValue}>{rupee(lastCompany)}</div>
+              <div style={{ fontSize: 12, color: "#6B7280", marginTop: 4 }}>
+                Full month company revenue
+              </div>
+            </div>
+            <div style={{ ...S.compareCard, borderColor: "#E0AA3D", background: "#FFFBF0" }}>
+              <div style={S.statLabel}>Pace vs last month</div>
+              <div style={S.statValue}>{rupee(lastPaceCompany)}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4, color: deltaColor(vsPace) }}>
+                Last month by day {today.slice(8)} was {rupee(lastPaceCompany)} · {deltaText(vsPace)}
+              </div>
+            </div>
+          </div>
+          <WeeklyRevenueChart weeks={weeks} />
+          <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 12, fontWeight: 600, color: "#6B7280" }}>
+            <span><span style={{ ...S.legendDot, background: "#07163F" }} /> Weekly brokerage</span>
+            <span><span style={{ ...S.legendDot, background: "#E0AA3D" }} /> Weekly company revenue</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WeeklyRevenueChart({ weeks }: { weeks: { label: string; brokerage: number; company: number }[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 720;
+  const H = 228;
+  const pad = { l: 54, r: 18, t: 18, b: 40 };
+  const max = Math.max(1, ...weeks.map((w) => w.brokerage));
+  const innerW = W - pad.l - pad.r;
+  const innerH = H - pad.t - pad.b;
+  const x = (i: number) => pad.l + (weeks.length <= 1 ? innerW / 2 : (i / (weeks.length - 1)) * innerW);
+  const y = (v: number) => pad.t + (1 - v / max) * innerH;
+  const toPoints = (key: "brokerage" | "company") =>
+    weeks.map((w, i) => `${x(i).toFixed(1)},${y(w[key]).toFixed(1)}`).join(" ");
+  const area = `${x(0).toFixed(1)},${y(0).toFixed(1)} ${toPoints("company")} ${x(weeks.length - 1).toFixed(1)},${y(0).toFixed(1)}`;
+  const ticks = [0, 0.5, 1].map((p) => Math.round(max * p));
+  const tip = hover != null ? weeks[hover] : null;
+
+  return (
+    <div style={{ position: "relative", marginTop: 8 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} role="img" aria-label="Weekly brokerage and company revenue">
+        <defs>
+          <linearGradient id="coArea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#E0AA3D" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#E0AA3D" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke="#EEF0F3" strokeWidth="1" />
+            <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="10" fill="#9CA3AF">
+              {t >= 1000 ? `${Math.round(t / 1000)}k` : t}
+            </text>
+          </g>
+        ))}
+        <polygon points={area} fill="url(#coArea)" />
+        <polyline points={toPoints("brokerage")} fill="none" stroke="#07163F" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={toPoints("company")} fill="none" stroke="#E0AA3D" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        {weeks.map((w, i) => (
+          <g key={w.label}>
+            <circle cx={x(i)} cy={y(w.brokerage)} r={hover === i ? 6 : 4.5} fill="#07163F" stroke="#fff" strokeWidth="1.5" />
+            <circle cx={x(i)} cy={y(w.company)} r={hover === i ? 6 : 4.5} fill="#E0AA3D" stroke="#fff" strokeWidth="1.5" />
+            <text x={x(i)} y={H - 14} textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">{w.label}</text>
+            <rect
+              x={x(i) - innerW / Math.max(weeks.length, 1) / 2}
+              y={pad.t}
+              width={innerW / Math.max(weeks.length, 1)}
+              height={innerH}
+              fill="transparent"
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+            />
+          </g>
+        ))}
+      </svg>
+      {tip && hover != null && (
+        <div
+          style={{
+            ...S.chartTip,
+            left: `${(x(hover) / W) * 100}%`,
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{tip.label}</div>
+          <div>Brokerage {rupee(tip.brokerage)}</div>
+          <div style={{ color: "#8A6A1C" }}>Company {rupee(tip.company)}</div>
+        </div>
+      )}
+      {weeks.every((w) => w.brokerage === 0) && (
+        <div style={{ ...S.empty, position: "absolute", inset: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          No trades in the last 5 weeks yet.
+        </div>
       )}
     </div>
   );
@@ -1754,6 +1931,12 @@ const S: Record<string, React.CSSProperties> = {
   celebrateBanner: { background: "#ECFDF5", border: "1px solid #A7F3D0", color: "#065F46", fontSize: 13, fontWeight: 600, padding: "12px 16px", borderRadius: RADIUS.md, marginBottom: 16, lineHeight: 1.4 },
   progressTrack: { height: 6, background: "#EEF0F3", borderRadius: 99, marginTop: 6, overflow: "hidden" },
   progressFill: { height: "100%", borderRadius: 99, transition: "width .2s ease" },
+  periodGroup: { display: "flex", background: "#EBEDF1", padding: 3, borderRadius: RADIUS.md, gap: 2 },
+  chartPanel: { background: "#fff", border: "1px solid #EEF0F3", borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, marginBottom: 16, overflow: "hidden" },
+  compareRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, margin: "8px 0 12px" },
+  compareCard: { background: "#F9FAFB", border: "1px solid #EEF0F3", borderRadius: RADIUS.md, padding: "12px 14px" },
+  legendDot: { width: 8, height: 8, borderRadius: 99, display: "inline-block", marginRight: 6, verticalAlign: "middle" },
+  chartTip: { position: "absolute", top: 8, transform: "translateX(-50%)", background: "#07163F", color: "#fff", fontSize: 11, lineHeight: 1.45, padding: "8px 10px", borderRadius: RADIUS.sm, boxShadow: SHADOW.md, pointerEvents: "none", whiteSpace: "nowrap", zIndex: 2 },
   stagePill: { color: "#fff", fontSize: 10.5, fontWeight: 700, padding: "4px 11px", borderRadius: RADIUS.pill, display: "inline-block", letterSpacing: ".2px" },
   overlay: { position: "fixed", inset: 0, background: "rgba(7,22,63,.55)", display: "flex", justifyContent: "flex-end", zIndex: 50, backdropFilter: "blur(1px)" },
   drawer: { width: "100%", maxWidth: 460, background: "#F9FAFB", height: "100%", overflowY: "auto", padding: 24, boxShadow: SHADOW.lg },
@@ -1788,6 +1971,10 @@ const CSS = `
   .tab { border: none; background: transparent; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #6B7280; cursor: pointer; transition: background .12s ease, color .12s ease; }
   .tab:hover { color: #07163F; }
   .tab.active { background: #fff; color: #07163F; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+  .periodbtn { border: none; background: transparent; padding: 7px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; color: #6B7280; cursor: pointer; }
+  .periodbtn:hover { color: #07163F; }
+  .periodbtn.active { background: #07163F; color: #fff; }
+  .chartToggle { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; border: none; background: transparent; padding: 14px 18px; font-size: 13px; font-weight: 700; color: #07163F; cursor: pointer; text-align: left; }
   .sel, .ninput { padding: 9px 12px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 13px; background: #fff; color: #111827; transition: border-color .12s ease, box-shadow .12s ease; }
   .sel { cursor: pointer; }
   .sel:hover, .ninput:hover { border-color: #B8BFC9; }

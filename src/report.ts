@@ -5,6 +5,7 @@ import {
   incentiveFor,
   pctOf,
   sumTargetsInPeriod,
+  tradingSplit,
 } from "./revenue";
 
 type Lead = Schema["Lead"]["type"];
@@ -188,14 +189,40 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
   return lines.join("\n");
 }
 
-/** CSV of trades for one calendar day (YYYY-MM-DD), for the admin's daily download. */
-export function tradesToCSV(trades: Trade[], date: string): string {
-  const header = ["Date", "Client Name", "Buying Lot", "Brokerage (INR)"];
+/** CSV of trades in a date range (inclusive YYYY-MM-DD). Optional name resolver for the Dealer column. */
+export function tradesToCSV(
+  trades: Trade[],
+  range: { start: string; end: string },
+  dealerName?: (username?: string | null) => string
+): string {
+  const header = [
+    "Date",
+    "Dealer",
+    "Client Name",
+    "Buying Lot",
+    "Brokerage (INR)",
+    "Company Revenue (INR)",
+  ];
   const lines = [header.map(csvEscape).join(",")];
   trades
-    .filter((t) => (t.createdAt ?? "").slice(0, 10) === date)
+    .filter((t) => {
+      const d = (t.createdAt ?? "").slice(0, 10);
+      return !!d && d >= range.start && d <= range.end;
+    })
+    .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))
     .forEach((t) => {
-      lines.push([date, t.clientName, t.buyingLot ?? "", t.brokerage ?? 0].map(csvEscape).join(","));
+      const date = (t.createdAt ?? "").slice(0, 10);
+      const brokerage = t.brokerage ?? 0;
+      lines.push(
+        [
+          date,
+          dealerName ? dealerName(t.owner) : (t.owner ?? ""),
+          t.clientName,
+          t.buyingLot ?? "",
+          brokerage,
+          tradingSplit(brokerage).company,
+        ].map(csvEscape).join(",")
+      );
     });
   return lines.join("\n");
 }

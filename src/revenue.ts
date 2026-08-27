@@ -149,3 +149,94 @@ export function progressColor(pct: number | null): string {
   if (pct < 80) return "#D97706";
   return "#15803D";
 }
+
+export function parseISODate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+export function monthBounds(d: Date = new Date()): { start: string; end: string } {
+  const start = new Date(d.getFullYear(), d.getMonth(), 1);
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  return { start: toISODateLocal(start), end: toISODateLocal(end) };
+}
+
+export function lastMonthBounds(d: Date = new Date()): { start: string; end: string } {
+  return monthBounds(new Date(d.getFullYear(), d.getMonth() - 1, 1));
+}
+
+/** Last month's calendar date matching today, clamped to that month's last day. */
+export function sameDayLastMonth(today: string = toISODateLocal()): string {
+  const [y, m, d] = today.split("-").map(Number);
+  const lastDay = new Date(y, m - 1, 0);
+  const day = Math.min(d, lastDay.getDate());
+  return toISODateLocal(new Date(y, m - 2, day));
+}
+
+export function lastNWeekStarts(n: number, from: Date = new Date()): string[] {
+  const thisMonday = mondayOf(from);
+  const weeks: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    weeks.push(addDaysISO(thisMonday, -7 * i));
+  }
+  return weeks;
+}
+
+export function formatWeekRange(weekStart: string): string {
+  const end = addDaysISO(weekStart, 6);
+  const a = parseISODate(weekStart);
+  const b = parseISODate(end);
+  const fmt = (dt: Date) => dt.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return `${fmt(a)}–${fmt(b)}`;
+}
+
+export function formatMonthLabel(iso: string): string {
+  return parseISODate(iso).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+}
+
+export type TradePeriod = "day" | "thisWeek" | "thisMonth" | "lastMonth";
+
+export function tradePeriodRange(
+  period: TradePeriod,
+  day: string
+): { start: string; end: string; label: string } {
+  if (period === "day") return { start: day, end: day, label: day };
+  if (period === "thisWeek") {
+    const w = weekBounds(mondayOf());
+    return { ...w, label: `Week of ${formatWeekRange(w.start)}` };
+  }
+  if (period === "thisMonth") {
+    const m = monthBounds();
+    return { ...m, label: formatMonthLabel(m.start) };
+  }
+  const m = lastMonthBounds();
+  return { ...m, label: formatMonthLabel(m.start) };
+}
+
+export function sumBrokerage(trades: Trade[]): number {
+  return trades.reduce((s, t) => s + (t.brokerage ?? 0), 0);
+}
+
+export interface WeeklyTradePoint {
+  weekStart: string;
+  end: string;
+  label: string;
+  brokerage: number;
+  company: number;
+}
+
+export function weeklyTradeSeries(trades: Trade[], weekStarts: string[]): WeeklyTradePoint[] {
+  return weekStarts.map((weekStart) => {
+    const { start, end } = weekBounds(weekStart);
+    const brokerage = sumBrokerage(
+      trades.filter((t) => inDateRange(t.createdAt, start, end))
+    );
+    return {
+      weekStart,
+      end,
+      label: formatWeekRange(weekStart),
+      brokerage,
+      company: tradingSplit(brokerage).company,
+    };
+  });
+}
