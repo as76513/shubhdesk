@@ -61,10 +61,14 @@ import {
   quarterBounds,
   yearBounds,
   companyTargetOf,
-  companyActualsFor,
+  personActualsFor,
+  periodRangeFor,
+  hitAnyMetric,
   DEFAULT_COMPANY_TARGETS,
   parseISODate,
   type PeriodType,
+  type CompanyActuals,
+  type MetricTargets,
   tradePeriodRange,
   sumBrokerage,
   inDateRange,
@@ -137,6 +141,7 @@ export default function App() {
 
   const [view, setView] = useState<"board" | "list" | "followups" | "trades" | "targets">("board");
   const [viewMonth, setViewMonth] = useState(monthStartOf);
+  const [viewCadence, setViewCadence] = useState<PeriodType>("monthly");
   const [selected, setSelected] = useState<Lead | null>(null);
   const [filterService, setFilterService] = useState("All");
   const [handoffPrompt, setHandoffPrompt] = useState<{ lead: Lead; targetStage: string } | null>(null);
@@ -266,14 +271,35 @@ export default function App() {
     [viewMonth]
   );
 
+  const cadenceRange = useMemo(
+    () => periodRangeFor(viewCadence, viewMonth),
+    [viewCadence, viewMonth]
+  );
+
   const monthlyTarget = useMemo(
     () => companyTargetOf(companyTargets, "monthly"),
     [companyTargets]
   );
 
-  const monthActuals = useMemo(
-    () => companyActualsFor(leads, insuranceRevenue, viewMonthRange),
-    [leads, insuranceRevenue, viewMonthRange]
+  const cadenceTarget = useMemo(
+    () => companyTargetOf(companyTargets, viewCadence),
+    [companyTargets, viewCadence]
+  );
+
+  const myCadenceActuals = useMemo(
+    () =>
+      me
+        ? personActualsFor(me.username, leads, insuranceRevenue, cadenceRange)
+        : { nca: 0, aum: 0, sip: 0, insurance: 0 },
+    [me, leads, insuranceRevenue, cadenceRange]
+  );
+
+  const myMonthActuals = useMemo(
+    () =>
+      me
+        ? personActualsFor(me.username, leads, insuranceRevenue, viewMonthRange)
+        : { nca: 0, aum: 0, sip: 0, insurance: 0 },
+    [me, leads, insuranceRevenue, viewMonthRange]
   );
 
   const myTarget = useMemo(
@@ -303,13 +329,10 @@ export default function App() {
     return (closedPct != null && closedPct >= 100) || (revPct != null && revPct >= 100);
   }, [myTarget, myClosed, myRevenue]);
 
-  const hitMonthlyTarget = useMemo(() => {
-    const nca = pctOf(monthActuals.nca, monthlyTarget.ncaTarget);
-    const aum = pctOf(monthActuals.aum, monthlyTarget.aumTarget);
-    const sip = pctOf(monthActuals.sip, monthlyTarget.sipTarget);
-    const ins = pctOf(monthActuals.insurance, monthlyTarget.insuranceTarget);
-    return [nca, aum, sip, ins].some((p) => p != null && p >= 100);
-  }, [monthActuals, monthlyTarget]);
+  const hitMonthlyTarget = useMemo(
+    () => hitAnyMetric(myMonthActuals, monthlyTarget),
+    [myMonthActuals, monthlyTarget]
+  );
 
   function canEdit(lead: Lead) {
     if (!me) return false;
@@ -548,26 +571,31 @@ export default function App() {
 
         <StatBar stats={stats} totalBrokerage={me?.role === "admin" ? monthBrokerage : undefined} />
         {me?.role === "admin" ? (
+          view !== "trades" && view !== "targets" ? (
+            <EmployeeTargetBoard
+              staff={staff}
+              leads={leads}
+              insurance={insuranceRevenue}
+              month={viewMonth}
+              onMonthChange={setViewMonth}
+              cadence="monthly"
+              onCadenceChange={setViewCadence}
+              target={monthlyTarget}
+              showCadencePills={false}
+            />
+          ) : null
+        ) : (
           <>
             {hitMonthlyTarget && (
               <div style={S.celebrateBanner}>Monthly target hit — well done.</div>
             )}
-            <CompanyGoalsStrip
+            <PersonalTargetStrip
               month={viewMonth}
               onMonthChange={setViewMonth}
-              actuals={monthActuals}
-              target={monthlyTarget}
-            />
-          </>
-        ) : (
-          <>
-            {hitWeeklyTarget && (
-              <div style={S.celebrateBanner}>Weekly target hit — well done.</div>
-            )}
-            <GoalsStrip
-              target={myTarget}
-              closedActual={myClosed}
-              revenueActual={myRevenue}
+              cadence={viewCadence}
+              onCadenceChange={setViewCadence}
+              actuals={myCadenceActuals}
+              target={cadenceTarget}
               incentive={myIncentive}
             />
           </>
@@ -824,29 +852,243 @@ function MonthNav({ month, onChange }: { month: string; onChange: (m: string) =>
   );
 }
 
-function CompanyGoalsStrip({
-  month,
-  onMonthChange,
+function CadencePills({
+  value,
+  onChange,
+}: {
+  value: PeriodType;
+  onChange: (p: PeriodType) => void;
+}) {
+  const items: { id: PeriodType; label: string }[] = [
+    { id: "monthly", label: "Monthly" },
+    { id: "quarterly", label: "Quarterly" },
+    { id: "yearly", label: "Yearly" },
+  ];
+  return (
+    <div style={S.periodGroup}>
+      {items.map((p) => (
+        <button
+          key={p.id}
+          className={value === p.id ? "periodbtn active" : "periodbtn"}
+          onClick={() => onChange(p.id)}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TargetMetrics({
   actuals,
   target,
 }: {
-  month: string;
-  onMonthChange: (m: string) => void;
-  actuals: { nca: number; aum: number; sip: number; insurance: number };
-  target: { ncaTarget: number; aumTarget: number; sipTarget: number; insuranceTarget: number };
+  actuals: CompanyActuals;
+  target: MetricTargets;
 }) {
   return (
-    <div style={{ ...S.statCard, marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-        <div style={{ ...S.statLabel, marginTop: 0 }}>Monthly progress</div>
-        <MonthNav month={month} onChange={onMonthChange} />
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+      <MetricProgress label="NCA" actual={String(actuals.nca)} goal={String(target.ncaTarget)} pct={pctOf(actuals.nca, target.ncaTarget)} />
+      <MetricProgress label="AUM" actual={rupee(actuals.aum)} goal={rupee(target.aumTarget)} pct={pctOf(actuals.aum, target.aumTarget)} />
+      <MetricProgress label="SIP" actual={rupee(actuals.sip)} goal={rupee(target.sipTarget)} pct={pctOf(actuals.sip, target.sipTarget)} />
+      <MetricProgress label="Insurance" actual={rupee(actuals.insurance)} goal={rupee(target.insuranceTarget)} pct={pctOf(actuals.insurance, target.insuranceTarget)} />
+    </div>
+  );
+}
+
+function TargetStrip({
+  title,
+  actuals,
+  target,
+}: {
+  title: string;
+  actuals: CompanyActuals;
+  target: MetricTargets;
+}) {
+  return (
+    <div style={{ ...S.statCard, marginBottom: 12 }}>
+      <div style={{ ...S.statLabel, marginTop: 0, marginBottom: 4 }}>{title}</div>
+      <TargetMetrics actuals={actuals} target={target} />
+    </div>
+  );
+}
+
+function CadenceToolbar({
+  label,
+  month,
+  onMonthChange,
+  cadence,
+  onCadenceChange,
+  showMonthNav = true,
+  showCadencePills = true,
+}: {
+  label: string;
+  month: string;
+  onMonthChange: (m: string) => void;
+  cadence: PeriodType;
+  onCadenceChange: (p: PeriodType) => void;
+  showMonthNav?: boolean;
+  showCadencePills?: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+      <div style={{ ...S.statLabel, marginTop: 0 }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {showCadencePills && <CadencePills value={cadence} onChange={onCadenceChange} />}
+        {showMonthNav && <MonthNav month={month} onChange={onMonthChange} />}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
-        <MetricProgress label="NCA" actual={String(actuals.nca)} goal={String(target.ncaTarget)} pct={pctOf(actuals.nca, target.ncaTarget)} />
-        <MetricProgress label="AUM" actual={rupee(actuals.aum)} goal={rupee(target.aumTarget)} pct={pctOf(actuals.aum, target.aumTarget)} />
-        <MetricProgress label="SIP" actual={rupee(actuals.sip)} goal={rupee(target.sipTarget)} pct={pctOf(actuals.sip, target.sipTarget)} />
-        <MetricProgress label="Insurance" actual={rupee(actuals.insurance)} goal={rupee(target.insuranceTarget)} pct={pctOf(actuals.insurance, target.insuranceTarget)} />
+    </div>
+  );
+}
+
+function pipelineStaff(staff: Staff[]): Staff[] {
+  return staff
+    .filter((s) => s.role === "sales" || s.role === "rm")
+    .slice()
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+function EmployeeTargetBoard({
+  staff,
+  leads,
+  insurance,
+  month,
+  onMonthChange,
+  cadence,
+  onCadenceChange,
+  target,
+  showMonthNav = true,
+  showCadencePills = true,
+}: {
+  staff: Staff[];
+  leads: Lead[];
+  insurance: InsuranceRevenue[];
+  month: string;
+  onMonthChange: (m: string) => void;
+  cadence: PeriodType;
+  onCadenceChange: (p: PeriodType) => void;
+  target: MetricTargets;
+  showMonthNav?: boolean;
+  showCadencePills?: boolean;
+}) {
+  const range = periodRangeFor(cadence, month);
+  const people = pipelineStaff(staff);
+  const heading = cadence === "monthly" ? `Monthly progress — ${range.label}` : `Progress by employee — ${range.label}`;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <CadenceToolbar
+        label={heading}
+        month={month}
+        onMonthChange={onMonthChange}
+        cadence={cadence}
+        onCadenceChange={onCadenceChange}
+        showMonthNav={showMonthNav}
+        showCadencePills={showCadencePills}
+      />
+      {people.length === 0 ? (
+        <div style={S.empty}>No sales or RM profiles yet — strips appear once staff log in.</div>
+      ) : (
+        people.map((p) => (
+          <TargetStrip
+            key={p.username}
+            title={`${p.displayName} (${p.role})`}
+            actuals={personActualsFor(p.username, leads, insurance, range)}
+            target={target}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function PersonalTargetStrip({
+  month,
+  onMonthChange,
+  cadence,
+  onCadenceChange,
+  actuals,
+  target,
+  incentive,
+}: {
+  month: string;
+  onMonthChange: (m: string) => void;
+  cadence: PeriodType;
+  onCadenceChange: (p: PeriodType) => void;
+  actuals: CompanyActuals;
+  target: MetricTargets;
+  incentive: number;
+}) {
+  const range = periodRangeFor(cadence, month);
+  return (
+    <div style={{ ...S.statBar, marginBottom: 16 }}>
+      <div style={{ ...S.statCard, flex: 3 }}>
+        <CadenceToolbar
+          label={cadence === "monthly" ? `Monthly progress — ${range.label}` : `Your targets — ${range.label}`}
+          month={month}
+          onMonthChange={onMonthChange}
+          cadence={cadence}
+          onCadenceChange={onCadenceChange}
+        />
+        <TargetMetrics actuals={actuals} target={target} />
       </div>
+      <div style={S.statCard}>
+        <div style={S.statValue}>{rupee(incentive)}</div>
+        <div style={S.statLabel}>This Week's Incentive</div>
+      </div>
+    </div>
+  );
+}
+
+function EmployeeProgressSection({
+  staff,
+  leads,
+  insurance,
+  viewMonth,
+  monthly,
+  quarterly,
+  yearly,
+}: {
+  staff: Staff[];
+  leads: Lead[];
+  insurance: InsuranceRevenue[];
+  viewMonth: string;
+  monthly: MetricTargets;
+  quarterly: MetricTargets;
+  yearly: MetricTargets;
+}) {
+  const monthRange = monthBounds(parseISODate(viewMonth));
+  const q = quarterBounds(parseISODate(viewMonth));
+  const y = yearBounds(parseISODate(viewMonth));
+  const people = pipelineStaff(staff);
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={S.sectionLabel}>Monthly progress — {formatMonthLong(viewMonth)}</div>
+      {people.length === 0 ? (
+        <div style={S.empty}>No sales or RM profiles yet — progress appears once staff log in.</div>
+      ) : (
+        people.map((p) => (
+          <div key={p.username} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#07163F", marginBottom: 8 }}>
+              {p.displayName} <span style={S.roleTag}>{(p.role ?? "").toUpperCase()}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+              <div style={S.statCard}>
+                <div style={S.statLabel}>Monthly</div>
+                <TargetMetrics actuals={personActualsFor(p.username, leads, insurance, monthRange)} target={monthly} />
+              </div>
+              <div style={S.statCard}>
+                <div style={S.statLabel}>{q.label}</div>
+                <TargetMetrics actuals={personActualsFor(p.username, leads, insurance, q)} target={quarterly} />
+              </div>
+              <div style={S.statCard}>
+                <div style={S.statLabel}>Year {y.label}</div>
+                <TargetMetrics actuals={personActualsFor(p.username, leads, insurance, y)} target={yearly} />
+              </div>
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -1480,11 +1722,6 @@ function TargetsView({
   }, [companyTargets]);
 
   const monthRange = monthBounds(parseISODate(viewMonth));
-  const q = quarterBounds(parseISODate(viewMonth));
-  const y = yearBounds(parseISODate(viewMonth));
-  const monthActuals = companyActualsFor(leads, insurance, monthRange);
-  const quarterActuals = companyActualsFor(leads, insurance, q);
-  const yearActuals = companyActualsFor(leads, insurance, y);
 
   const employees = useMemo(() => {
     const pool = staff.filter((s) => s.role === "sales" || s.role === "rm" || s.role === "dealer");
@@ -1546,12 +1783,13 @@ function TargetsView({
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        <div style={{ ...S.sectionLabel, marginBottom: 0 }}>Company targets</div>
+        <div style={{ ...S.sectionLabel, marginBottom: 0 }}>Individual targets</div>
         <MonthNav month={viewMonth} onChange={onMonthChange} />
       </div>
       <div style={S.hint}>
-        These numbers apply to everyone. NCA is closed deals. AUM is closed Trading value. SIP is closed SIP value.
-        Insurance is the company revenue you enter below. ₹ amounts: 2 Lakh = 2,00,000.
+        The company sets these quotas; every sales and RM is measured against them personally. NCA is closed deals they own or sourced.
+        AUM is their closed Trading value. SIP is their closed SIP value. Insurance is company revenue you attribute to them below.
+        ₹ amounts: 2 Lakh = 2,00,000.
       </div>
 
       <div style={{ ...S.list, padding: 16, margin: "12px 0 20px", overflowX: "auto" }}>
@@ -1584,30 +1822,15 @@ function TargetsView({
         </div>
       </div>
 
-      <div style={S.sectionLabel}>Progress — {formatMonthLong(viewMonth)}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 24 }}>
-        <div style={S.statCard}>
-          <div style={S.statLabel}>Monthly</div>
-          <MetricProgress label="NCA" actual={String(monthActuals.nca)} goal={String(form.monthly.ncaTarget)} pct={pctOf(monthActuals.nca, form.monthly.ncaTarget)} />
-          <MetricProgress label="AUM" actual={rupee(monthActuals.aum)} goal={rupee(form.monthly.aumTarget)} pct={pctOf(monthActuals.aum, form.monthly.aumTarget)} />
-          <MetricProgress label="SIP" actual={rupee(monthActuals.sip)} goal={rupee(form.monthly.sipTarget)} pct={pctOf(monthActuals.sip, form.monthly.sipTarget)} />
-          <MetricProgress label="Insurance" actual={rupee(monthActuals.insurance)} goal={rupee(form.monthly.insuranceTarget)} pct={pctOf(monthActuals.insurance, form.monthly.insuranceTarget)} />
-        </div>
-        <div style={S.statCard}>
-          <div style={S.statLabel}>{q.label}</div>
-          <MetricProgress label="NCA" actual={String(quarterActuals.nca)} goal={String(form.quarterly.ncaTarget)} pct={pctOf(quarterActuals.nca, form.quarterly.ncaTarget)} />
-          <MetricProgress label="AUM" actual={rupee(quarterActuals.aum)} goal={rupee(form.quarterly.aumTarget)} pct={pctOf(quarterActuals.aum, form.quarterly.aumTarget)} />
-          <MetricProgress label="SIP" actual={rupee(quarterActuals.sip)} goal={rupee(form.quarterly.sipTarget)} pct={pctOf(quarterActuals.sip, form.quarterly.sipTarget)} />
-          <MetricProgress label="Insurance" actual={rupee(quarterActuals.insurance)} goal={rupee(form.quarterly.insuranceTarget)} pct={pctOf(quarterActuals.insurance, form.quarterly.insuranceTarget)} />
-        </div>
-        <div style={S.statCard}>
-          <div style={S.statLabel}>Year {y.label}</div>
-          <MetricProgress label="NCA" actual={String(yearActuals.nca)} goal={String(form.yearly.ncaTarget)} pct={pctOf(yearActuals.nca, form.yearly.ncaTarget)} />
-          <MetricProgress label="AUM" actual={rupee(yearActuals.aum)} goal={rupee(form.yearly.aumTarget)} pct={pctOf(yearActuals.aum, form.yearly.aumTarget)} />
-          <MetricProgress label="SIP" actual={rupee(yearActuals.sip)} goal={rupee(form.yearly.sipTarget)} pct={pctOf(yearActuals.sip, form.yearly.sipTarget)} />
-          <MetricProgress label="Insurance" actual={rupee(yearActuals.insurance)} goal={rupee(form.yearly.insuranceTarget)} pct={pctOf(yearActuals.insurance, form.yearly.insuranceTarget)} />
-        </div>
-      </div>
+      <EmployeeProgressSection
+        staff={staff}
+        leads={leads}
+        insurance={insurance}
+        viewMonth={viewMonth}
+        monthly={form.monthly}
+        quarterly={form.quarterly}
+        yearly={form.yearly}
+      />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9, flexWrap: "wrap", gap: 8 }}>
         <div style={{ ...S.sectionLabel, marginBottom: 0 }}>Insurance company revenue — {formatMonthLong(viewMonth)}</div>

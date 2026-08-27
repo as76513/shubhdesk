@@ -23,7 +23,7 @@ Amplify Data maps each `a.model()` to its own DynamoDB table. Eight models → e
 | `StaffProfile` | one item per employee | `id` (auto UUID) |
 | `Counter` | one item per calendar month (`YYMM`) | `period` (custom key, via `.identifier(['period'])`) |
 | `Trade` | one item per dealer trade log entry | `id` (auto UUID) |
-| `CompanyTarget` | one company-wide target row per cadence | `periodType` (`monthly` / `quarterly` / `yearly`) |
+| `CompanyTarget` | one quota row per cadence; applied as each sales/RM's individual target | `periodType` (`monthly` / `quarterly` / `yearly`) |
 | `Target` | one weekly target per employee (legacy, employee strip) | `username` + `weekStart` (composite, via `.identifier`) |
 | `InsuranceRevenue` | one admin-entered insurance company-revenue row | `id` (auto UUID) |
 
@@ -68,7 +68,7 @@ Each model's `.authorization((allow) => [...])` block *is* the access-pattern de
 - **`Counter`**: `allow.group('admin')` for writes, `allow.authenticated().to(['read','create','update'])` for everyone (any staff member creating a lead needs to bump the sequence).
 - **`Note`**: `allow.group('admin')` + `allow.authenticated().to(['read','create'])` (notes are cheap and shared; the sensitive control point is `Lead`, not `Note`).
 - **`Trade`**: `allow.group('admin')` + `allow.ownerDefinedIn('owner')` — no group-level read for anyone else, unlike `Lead`'s `rm` read rule. A dealer's trades are private to them and admin; there's no equivalent of RMs "seeing incoming handoffs" here because there's no handoff into `Trade` at all.
-- **`CompanyTarget`**: `allow.group('admin')` full control + `allow.authenticated().to(['read'])`. Identifier is `periodType` — three rows total. Same numbers for every employee.
+- **`CompanyTarget`**: `allow.group('admin')` full control + `allow.authenticated().to(['read'])`. Identifier is `periodType` — three rows total. Same quota numbers for every sales/RM (individual, not a team pool).
 - **`Target`**: `allow.group('admin')` full control + `allow.ownerDefinedIn('username').to(['read'])`. Composite identifier `['username', 'weekStart']` so saving the same employee+week is an update, not a second row. Legacy weekly employee strip.
 - **`InsuranceRevenue`**: same auth as Target (admin writes, employee reads own). Trading revenue is **not** stored here — it is derived from `Trade.brokerage` in `src/revenue.ts`. Only Insurance needs a manual company-revenue amount.
 

@@ -137,9 +137,9 @@ const schema = a.schema({
       allow.ownerDefinedIn('owner'),
     ]),
 
-  // Company-wide targets, one row per cadence. Same numbers for every
-  // employee. Admin writes; any signed-in staff can read (employees will
-  // use these on their board in a later pass).
+  // Per-employee quotas, one row per cadence. Same numbers for every
+  // sales/RM (not a company pool). Admin writes; any signed-in staff can
+  // read so their board strip can show personal actuals vs these goals.
   CompanyTarget: a
     .model({
       periodType: a.string().required(), // "monthly" | "quarterly" | "yearly"
@@ -154,10 +154,8 @@ const schema = a.schema({
       allow.authenticated().to(['read']),
     ]),
 
-  // Weekly targets per employee. Composite key so a second save for the
-  // same person+week updates the row instead of creating a duplicate.
-  // Employees can read their own; only admin writes.
-  // Kept for the employee GoalsStrip until that moves to CompanyTarget.
+  // Kept for the dealer weekly GoalsStrip (leads-closed + revenue).
+  // Sales/RM now use CompanyTarget on their personal strip instead.
   Target: a
     .model({
       username: a.string().required(), // Cognito username, same as Lead.owner

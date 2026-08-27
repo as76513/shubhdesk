@@ -144,6 +144,15 @@ export function pctOf(actual: number, target: number | null | undefined): number
   return Math.round((actual / target) * 100);
 }
 
+export function hitAnyMetric(actuals: CompanyActuals, target: MetricTargets): boolean {
+  return (
+    (pctOf(actuals.nca, target.ncaTarget) ?? 0) >= 100 ||
+    (pctOf(actuals.aum, target.aumTarget) ?? 0) >= 100 ||
+    (pctOf(actuals.sip, target.sipTarget) ?? 0) >= 100 ||
+    (pctOf(actuals.insurance, target.insuranceTarget) ?? 0) >= 100
+  );
+}
+
 export function progressColor(pct: number | null): string {
   if (pct == null) return "#9CA3AF";
   if (pct < 50) return "#DC2626";
@@ -189,8 +198,28 @@ export function yearBounds(d: Date = new Date()): { start: string; end: string; 
 
 export type PeriodType = "monthly" | "quarterly" | "yearly";
 
+export interface MetricTargets {
+  ncaTarget: number;
+  aumTarget: number;
+  sipTarget: number;
+  insuranceTarget: number;
+}
+
+export function periodRangeFor(
+  periodType: PeriodType,
+  monthStart: string
+): { start: string; end: string; label: string } {
+  const d = parseISODate(monthStart);
+  if (periodType === "monthly") {
+    const m = monthBounds(d);
+    return { ...m, label: formatMonthLong(monthStart) };
+  }
+  if (periodType === "quarterly") return quarterBounds(d);
+  return yearBounds(d);
+}
+
 /** Starting numbers from the partner table until admin saves their own. */
-export const DEFAULT_COMPANY_TARGETS: Record<PeriodType, { ncaTarget: number; aumTarget: number; sipTarget: number; insuranceTarget: number }> = {
+export const DEFAULT_COMPANY_TARGETS: Record<PeriodType, MetricTargets> = {
   monthly: { ncaTarget: 10, aumTarget: 200_000, sipTarget: 5_000, insuranceTarget: 50_000 },
   quarterly: { ncaTarget: 30, aumTarget: 600_000, sipTarget: 30_000, insuranceTarget: 150_000 },
   yearly: { ncaTarget: 120, aumTarget: 3_000_000, sipTarget: 100_000, insuranceTarget: 600_000 },
@@ -199,7 +228,7 @@ export const DEFAULT_COMPANY_TARGETS: Record<PeriodType, { ncaTarget: number; au
 export function companyTargetOf(
   rows: CompanyTarget[],
   periodType: PeriodType
-): { ncaTarget: number; aumTarget: number; sipTarget: number; insuranceTarget: number } {
+): MetricTargets {
   const row = rows.find((r) => r.periodType === periodType);
   if (!row) return DEFAULT_COMPANY_TARGETS[periodType];
   return {
@@ -218,9 +247,9 @@ export interface CompanyActuals {
 }
 
 /**
- * Company-wide actuals for a date range.
- * NCA = closed leads (any service). AUM = closed Trading deal value.
- * SIP = closed SIP deal value. Insurance = admin-entered company revenue.
+ * Actuals for a date range. NCA = closed leads (any service).
+ * AUM = closed Trading deal value. SIP = closed SIP deal value.
+ * Insurance = admin-entered company revenue.
  */
 export function companyActualsFor(
   leads: Lead[],
@@ -238,6 +267,24 @@ export function companyActualsFor(
       .filter((r) => inDateRange(r.earnedOn, range.start, range.end))
       .reduce((s, r) => s + (r.companyRevenue ?? 0), 0),
   };
+}
+
+/**
+ * One person's actuals against the shared individual quota.
+ * Closed-lead credit matches `closedLeadCountFor` (owner or sourcedBy).
+ * Insurance is only the rows admin attributed to this username.
+ */
+export function personActualsFor(
+  username: string,
+  leads: Lead[],
+  insurance: InsuranceRevenue[],
+  range: { start: string; end: string }
+): CompanyActuals {
+  return companyActualsFor(
+    leads.filter((l) => l.owner === username || l.sourcedBy === username),
+    insurance.filter((r) => r.username === username),
+    range
+  );
 }
 
 export function lastMonthBounds(d: Date = new Date()): { start: string; end: string } {
