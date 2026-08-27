@@ -537,7 +537,7 @@ function DroppableColumn({ stage, count, children }: { stage: (typeof STAGES)[nu
     <div style={S.column}>
       <div style={{ ...S.colHeader, borderTopColor: stage.color, background: stage.color + "0F" }}>
         <span style={S.colTitle}>{stage.label}</span>
-        <span style={S.colCount}>{count}</span>
+        <span style={{ ...S.colCount, background: stage.color + "26", color: stage.color }}>{count}</span>
       </div>
       <div ref={setNodeRef} className="colBody" style={{ ...S.colBody, ...(isOver ? S.colBodyDragOver : {}) }}>
         {children}
@@ -1126,7 +1126,7 @@ const S: Record<string, React.CSSProperties> = {
   column: { background: "#fff", borderRadius: RADIUS.lg, boxShadow: SHADOW.sm, border: "1px solid #EEF0F3", display: "flex", flexDirection: "column", minHeight: 0 },
   colHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderTop: "3px solid", borderRadius: `${RADIUS.lg}px ${RADIUS.lg}px 0 0` },
   colTitle: { fontSize: 12.5, fontWeight: 700, letterSpacing: ".1px" },
-  colCount: { fontSize: 11, fontWeight: 600, background: "rgba(15,23,42,.06)", borderRadius: RADIUS.pill, padding: "2px 9px", color: "#4B5563" },
+  colCount: { fontSize: 11.5, fontWeight: 700, borderRadius: RADIUS.pill, padding: "2px 10px" },
   colBody: { padding: 10, display: "flex", flexDirection: "column", gap: 6, minHeight: 80, maxHeight: "calc(100vh - 320px)", overflowY: "auto", borderRadius: `0 0 ${RADIUS.lg}px ${RADIUS.lg}px`, transition: "background .12s ease" },
   colBodyDragOver: { background: "#FBF3DC", outline: "2px dashed #E0AA3D", outlineOffset: -6 },
   card: { background: "#fff", border: "1px solid #EEF0F3", borderLeft: "3px solid transparent", borderRadius: RADIUS.md, padding: "9px 11px", cursor: "pointer", transition: "box-shadow .15s ease, transform .15s ease, border-color .15s ease" },
