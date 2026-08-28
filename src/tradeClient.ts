@@ -11,11 +11,31 @@ import type { Schema } from '../amplify/data/resource';
 
 const client = generateClient<Schema>();
 
-/** Trades the signed-in dealer owns (or all trades, for an admin). */
+async function listAllPages<T>(
+  fetch: (nextToken?: string | null) => Promise<{
+    data?: Array<T | null> | null;
+    nextToken?: string | null;
+    errors?: unknown;
+  }>
+): Promise<T[]> {
+  const out: T[] = [];
+  let nextToken: string | null | undefined;
+  do {
+    const { data, errors, nextToken: nt } = await fetch(nextToken);
+    if (errors) throw errors;
+    for (const row of data ?? []) {
+      if (row) out.push(row);
+    }
+    nextToken = nt ?? null;
+  } while (nextToken);
+  return out;
+}
+
+/** Trades the caller may see: own (dealer), opened-by them (sales/RM), or all (admin). */
 export async function listTrades() {
-  const { data, errors } = await client.models.Trade.list();
-  if (errors) throw errors;
-  return data;
+  return listAllPages((nextToken) =>
+    client.models.Trade.list({ limit: 1000, nextToken })
+  );
 }
 
 export async function createTrade(input: {

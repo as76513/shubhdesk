@@ -52,6 +52,7 @@ import {
   ACCOUNT_OPENED_OWN,
   insuranceSplit,
   incentiveFor,
+  accountOpenedIncentiveFor,
   monthBounds,
   monthStartOf,
   addMonths,
@@ -122,6 +123,26 @@ const REJECTION_REASONS = [
 
 const rupee = (n?: number | null) => "₹" + (n ?? 0).toLocaleString("en-IN");
 const stageOf = (id?: string | null) => STAGES.find((s) => s.id === id) ?? STAGES[0];
+
+function DataCell({
+  label,
+  children,
+  className,
+  style,
+  onClick,
+}: {
+  label?: string;
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  onClick?: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div className={`dc ${className ?? ""}`} data-label={label} style={style} onClick={onClick}>
+      {children}
+    </div>
+  );
+}
 const sourceOf = (id?: string | null) => SOURCES.find((s) => s.id === id)?.label ?? id;
 const reasonOf = (id?: string | null) => REJECTION_REASONS.find((r) => r.id === id)?.label ?? id;
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -202,13 +223,14 @@ export default function App() {
           setTrades(tr);
           setStaff(st);
         } else {
-          const [ls, st, rmList, tg, ct, ir] = await Promise.all([
+          const [ls, st, rmList, tg, ct, ir, tr] = await Promise.all([
             listLeads(),
             listStaff(),
             listRMs(),
             listTargets(),
             listCompanyTargets(),
             listInsuranceRevenue(),
+            listTrades(),
           ]);
           setLeads(ls);
           setStaff(st);
@@ -216,9 +238,7 @@ export default function App() {
           setTargets(tg);
           setCompanyTargets(ct);
           setInsuranceRevenue(ir);
-          if (meInfo.role === "admin") {
-            setTrades(await listTrades());
-          }
+          setTrades(tr);
         }
       } catch (e) {
         setError(friendlyError(e, "Couldn't start ShubhDesk. Please refresh."));
@@ -254,8 +274,8 @@ export default function App() {
     };
   }, [visibleLeads]);
 
-  // Month-to-date brokerage. Only shown for admin (the only non-dealer
-  // role with Trade visibility) -- sales/rm never load trades.
+  // Month-to-date brokerage. Only shown for admin. Sales/RM load trades
+  // they opened (for Account trading incentive) but must not see company totals.
   const monthBrokerage = useMemo(() => {
     const { start, end } = monthBounds();
     return trades
@@ -312,6 +332,11 @@ export default function App() {
   const myIncentive = useMemo(
     () => (me ? incentiveFor(me.username, viewMonthRange, trades, insuranceRevenue) : 0),
     [me, trades, insuranceRevenue, viewMonthRange]
+  );
+
+  const myAccountTradingIncentive = useMemo(
+    () => (me ? accountOpenedIncentiveFor(me.username, viewMonthRange, trades) : 0),
+    [me, trades, viewMonthRange]
   );
 
   const hitMonthlyTarget = useMemo(
@@ -526,14 +551,14 @@ export default function App() {
       <div style={S.app}>
         <style>{CSS}</style>
         <Header me={me} />
-        <div style={S.body}>
+        <div className="appBody" style={S.body}>
           {error && (
             <div style={S.errorBar}>
               <span style={{ whiteSpace: "pre-line" }}>{error}</span>{" "}
               <button className="linkbtn" onClick={refreshTrades}>Retry</button>
             </div>
           )}
-          <div style={{ ...S.statBar, marginBottom: 16 }}>
+          <div className="statBar" style={{ ...S.statBar, marginBottom: 16 }}>
             <div style={S.statCard}>
               <div style={S.statValue}>{rupee(myIncentive)}</div>
               <div style={S.statLabel}>This Month's Incentive</div>
@@ -558,7 +583,7 @@ export default function App() {
       <style>{CSS}</style>
       <Header me={me} />
 
-      <div style={S.body}>
+      <div className="appBody" style={S.body}>
         {error && (
           <div style={S.errorBar}>
             <span style={{ whiteSpace: "pre-line" }}>{error}</span>{" "}
@@ -595,11 +620,12 @@ export default function App() {
               actuals={myCadenceActuals}
               target={cadenceTarget}
               incentive={myIncentive}
+              accountTradingIncentive={myAccountTradingIncentive}
             />
           </>
         )}
 
-        <div style={S.toolbar}>
+        <div className="toolbar" style={S.toolbar}>
           <div style={S.tabs}>
             <button className={view === "board" ? "tab active" : "tab"} onClick={() => setView("board")}>Pipeline Board</button>
             <button className={view === "list" ? "tab active" : "tab"} onClick={() => setView("list")}>My Leads</button>
@@ -744,23 +770,23 @@ export default function App() {
 
 function Header({ me }: { me: { displayName: string; role: Role } | null }) {
   return (
-    <header style={S.header}>
+    <header className="appHeader" style={S.header}>
       <div style={S.brand}>
         {/* Deploy: swap src to https://app.shubhshreeknowledgehub.com/assets/logo.png */}
         <img src={LOGO} alt="ShubhShree" style={S.logoImg}
           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={S.brandName}>ShubhDesk</div>
-          <div style={S.brandSub}>Sales Pipeline · ShubhShree Knowledge Hub</div>
+          <div className="brandSub" style={S.brandSub}>Sales Pipeline · ShubhShree Knowledge Hub</div>
         </div>
       </div>
       <div style={S.userSwitch}>
         {me && (
-          <span style={S.whoami}>
-            {me.displayName} <span style={S.roleTag}>{me.role.toUpperCase()}</span>
+          <span className="whoami" style={S.whoami}>
+            <span className="whoamiText">{me.displayName}</span> <span style={S.roleTag}>{me.role.toUpperCase()}</span>
           </span>
         )}
-        <button className="ghost sm" onClick={() => signOut()}>Sign out</button>
+        <button className="ghost sm onDark" onClick={() => signOut()}>Sign out</button>
       </div>
     </header>
   );
@@ -777,7 +803,7 @@ function StatBar({ stats, totalBrokerage }: { stats: any; totalBrokerage?: numbe
       : []),
   ];
   return (
-    <div style={S.statBar}>
+    <div className="statBar" style={S.statBar}>
       {items.map((it) => (
         <div key={it.label} style={S.statCard}>
           <div style={S.statValue}>{it.value}</div>
@@ -793,7 +819,7 @@ function MonthNav({ month, onChange }: { month: string; onChange: (m: string) =>
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <button className="ghost sm" onClick={() => onChange(addMonths(month, -1))}>← Prev</button>
-      <span style={{ fontSize: 16, fontWeight: 700, color: "#07163F", minWidth: 160, textAlign: "center" }}>
+      <span className="monthLabel" style={{ fontSize: 16, fontWeight: 700, color: "#07163F", minWidth: 120, textAlign: "center" }}>
         {formatMonthLong(month)}
       </span>
       <button className="ghost sm" onClick={() => onChange(addMonths(month, 1))}>Next →</button>
@@ -849,7 +875,7 @@ function TargetMetrics({
   target: MetricTargets;
 }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+    <div className="metricsGrid">
       <MetricProgress label="NCA" actual={String(actuals.nca)} goal={String(target.ncaTarget)} pct={pctOf(actuals.nca, target.ncaTarget)} />
       <MetricProgress label="AUM" actual={rupee(actuals.aum)} goal={rupee(target.aumTarget)} pct={pctOf(actuals.aum, target.aumTarget)} />
       <MetricProgress label="SIP" actual={rupee(actuals.sip)} goal={rupee(target.sipTarget)} pct={pctOf(actuals.sip, target.sipTarget)} />
@@ -928,6 +954,7 @@ function PersonalTargetStrip({
   actuals,
   target,
   incentive,
+  accountTradingIncentive,
 }: {
   month: string;
   onMonthChange: (m: string) => void;
@@ -936,13 +963,14 @@ function PersonalTargetStrip({
   actuals: CompanyActuals;
   target: MetricTargets;
   incentive: number;
+  accountTradingIncentive: number;
 }) {
   const range = periodRangeFor(cadence, month);
   const incentiveLabel =
     month === monthStartOf() ? "This Month's Incentive" : `Incentive — ${formatMonthLong(month)}`;
   return (
-    <div style={{ ...S.statBar, marginBottom: 16 }}>
-      <div style={{ ...S.statCard, flex: 3 }}>
+    <div className="stackStrip">
+      <div style={S.statCard}>
         <CadenceToolbar
           label={cadence === "monthly" ? `Monthly progress — ${range.label}` : `Your targets — ${range.label}`}
           month={month}
@@ -955,6 +983,12 @@ function PersonalTargetStrip({
       <div style={S.statCard}>
         <div style={S.statValue}>{rupee(incentive)}</div>
         <div style={S.statLabel}>{incentiveLabel}</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#4B5563", marginTop: 10 }}>
+          Account trading incentive {rupee(accountTradingIncentive)}
+        </div>
+        <div style={{ fontSize: 11, color: "#6B7280", marginTop: 4 }}>
+          From trades where you are Account Opened By (50% of the dealer cut).
+        </div>
       </div>
     </div>
   );
@@ -1025,7 +1059,7 @@ function MetricProgress({
   const width = Math.min(100, Math.max(0, pct ?? 0));
   return (
     <div style={{ marginTop: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, fontWeight: 600 }}>
+      <div className="metricLine">
         <span>{label}</span>
         <span style={{ color, textAlign: "right" }}>
           {actual} / {goal}{pct != null ? ` · ${pct}%` : ""}
@@ -1163,15 +1197,15 @@ function ListView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => void 
       {leads.map((l) => {
         const st = stageOf(l.stage);
         return (
-          <div key={l.id} className="row" style={S.listRow} onClick={() => onOpen(l)}>
-            <div style={{ flex: 2 }}>
+          <div key={l.id} className="row dataRow" style={S.listRow} onClick={() => onOpen(l)}>
+            <DataCell label="Client" className="dc-span" style={{ flex: 2 }}>
               <div style={S.cardCode}>{l.clientCode}</div>
-              <div style={S.cardName}>{l.client}</div>
+              <div style={{ ...S.cardName, whiteSpace: "normal" }}>{l.client}</div>
               <div style={S.rowPhone}>{l.phone}</div>
-            </div>
-            <div style={{ flex: 1 }}><span style={{ ...S.serviceTag, background: "#FBF3DC", color: "#8A6A1C" }}>{l.service}</span></div>
-            <div style={{ flex: 1 }}><span style={{ ...S.stagePill, background: st.color }}>{st.label}</span></div>
-            <div style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(l.value)}</div>
+            </DataCell>
+            <DataCell label="Service" style={{ flex: 1 }}><span style={{ ...S.serviceTag, background: "#FBF3DC", color: "#8A6A1C" }}>{l.service}</span></DataCell>
+            <DataCell label="Stage" style={{ flex: 1 }}><span style={{ ...S.stagePill, background: st.color }}>{st.label}</span></DataCell>
+            <DataCell label="Value" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(l.value)}</DataCell>
           </div>
         );
       })}
@@ -1188,17 +1222,17 @@ function FollowUpView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => v
       </div>
       <div style={S.list}>
         {leads.map((l) => (
-          <div key={l.id} className="row" style={S.listRow} onClick={() => onOpen(l)}>
-            <div style={{ flex: 2 }}>
+          <div key={l.id} className="row dataRow" style={S.listRow} onClick={() => onOpen(l)}>
+            <DataCell label="Client" className="dc-span" style={{ flex: 2 }}>
               <div style={S.cardCode}>{l.clientCode}</div>
-              <div style={S.cardName}>{l.client}</div>
+              <div style={{ ...S.cardName, whiteSpace: "normal" }}>{l.client}</div>
               <div style={S.rowPhone}>{l.phone} · {l.email}</div>
-            </div>
-            <div style={{ flex: 2 }}><div style={S.reqText}>{l.requirements || "—"}</div></div>
-            <div style={{ flex: 1, textAlign: "right" }}>
+            </DataCell>
+            <DataCell label="Notes" className="dc-span" style={{ flex: 2 }}><div style={S.reqText}>{l.requirements || "—"}</div></DataCell>
+            <DataCell label="Follow-up" className="dc-right" style={{ flex: 1, textAlign: "right" }}>
               <div style={S.dueDate}>Due {l.followUpOn}</div>
               <div style={S.rowPhone}>was {stageOf(l.stage).label}</div>
-            </div>
+            </DataCell>
           </div>
         ))}
         {leads.length === 0 && <div style={S.empty}>No follow-ups due. Set a "revisit on" date on any lead to add it here.</div>}
@@ -1484,7 +1518,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+      <div className="toolbar" style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <div style={S.periodGroup}>
           {PERIODS.map((p) => (
             <button
@@ -1503,7 +1537,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
         <button className="primary" onClick={() => setEditing("new")}>+ New Trade</button>
       </div>
 
-      <div style={{ ...S.statBar, marginBottom: 16 }}>
+      <div className="statBar" style={{ ...S.statBar, marginBottom: 16 }}>
         {isAdmin && (
           <>
             <div style={S.statCard}>
@@ -1540,18 +1574,18 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           Set Account Opened By on each trade below and save.
         </div>
         <div style={S.list}>
-          <div style={{ ...S.listRow, cursor: "default" }}>
+          <div className="dataHead" style={{ ...S.listRow, cursor: "default" }}>
             <div style={{ ...th, flex: 2 }}>Dealer</div>
             <div style={{ ...th, flex: 1, textAlign: "right" }}>Trades</div>
             <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>
             <div style={{ ...th, flex: 1, textAlign: "right" }}>Dealer ₹</div>
           </div>
           {byDealer.map((d) => (
-            <div key={d.owner} style={{ ...S.listRow, cursor: "default" }}>
-              <div style={{ flex: 2, fontWeight: 600 }}>{nameOf(d.owner)}</div>
-              <div style={{ flex: 1, textAlign: "right" }}>{d.count}</div>
-              <div style={{ flex: 1, textAlign: "right" }}>{rupee(d.brokerage)}</div>
-              <div style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(d.payout)}</div>
+            <div key={d.owner} className="dataRow" style={{ ...S.listRow, cursor: "default" }}>
+              <DataCell label="Dealer" className="dc-span" style={{ flex: 2, fontWeight: 600 }}>{nameOf(d.owner)}</DataCell>
+              <DataCell label="Trades" className="dc-right" style={{ flex: 1, textAlign: "right" }}>{d.count}</DataCell>
+              <DataCell label="Brokerage" className="dc-right" style={{ flex: 1, textAlign: "right" }}>{rupee(d.brokerage)}</DataCell>
+              <DataCell label="Dealer ₹" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(d.payout)}</DataCell>
             </div>
           ))}
           {byDealer.length === 0 && <div style={S.empty}>No trades logged in this period.</div>}
@@ -1561,7 +1595,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
 
       <div style={S.sectionLabel}>All Trades</div>
       <div style={S.list}>
-        <div style={{ ...S.listRow, cursor: "default" }}>
+        <div className="dataHead" style={{ ...S.listRow, cursor: "default" }}>
           <div style={{ ...th, flex: 1 }}>Date</div>
           <div style={{ ...th, flex: 1.3 }}>Dealer</div>
           <div style={{ ...th, flex: 1.6 }}>Client Name</div>
@@ -1574,12 +1608,12 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
         {trades.map((t) => {
           const split = tradingSplit(t.brokerage ?? 0, t);
           return (
-            <div key={t.id} className="row" style={S.listRow}>
-              <div style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</div>
-              <div style={{ flex: 1.3, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{nameOf(t.owner)}</div>
-              <div style={{ flex: 1.6, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{t.clientName}</div>
-              <div style={{ flex: 1.4, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{t.buyingLot || "—"}</div>
-              <div style={{ flex: 1.8 }} onClick={(e) => e.stopPropagation()}>
+            <div key={t.id} className="row dataRow" style={S.listRow}>
+              <DataCell label="Date" style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</DataCell>
+              <DataCell label="Dealer" style={{ flex: 1.3, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{nameOf(t.owner)}</DataCell>
+              <DataCell label="Client" className="dc-span" style={{ flex: 1.6, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{t.clientName}</DataCell>
+              <DataCell label="Buying lot" className="dc-span" style={{ flex: 1.4, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{t.buyingLot || "—"}</DataCell>
+              <DataCell label="Account opened by" className="dc-span" style={{ flex: 1.8 }} onClick={(e) => e.stopPropagation()}>
                 {isAdmin ? (
                   <select
                     className="sel"
@@ -1600,14 +1634,14 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
                     {openedByOther(t) ? " · 50%" : ""}
                   </span>
                 )}
-              </div>
+              </DataCell>
               {isAdmin && (
-                <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</div>
+                <DataCell label="Brokerage" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</DataCell>
               )}
-              <div style={{ flex: 1, textAlign: "right", fontWeight: 600, color: openedByOther(t) ? "#B45309" : "#07163F" }}>{rupee(split.dealer)}</div>
-              <div style={{ width: 66, textAlign: "right" }}>
+              <DataCell label={isAdmin ? "Dealer ₹" : "Your ₹"} className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, color: openedByOther(t) ? "#B45309" : "#07163F" }}>{rupee(split.dealer)}</DataCell>
+              <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
                 <button className="ghost sm" onClick={() => onDelete(t.id)}>Delete</button>
-              </div>
+              </DataCell>
             </div>
           );
         })}
@@ -1906,7 +1940,7 @@ function TargetsView({
         <button className="primary" onClick={() => setEditingIns("new")}>+ Add insurance revenue</button>
       </div>
       <div style={S.list}>
-        <div style={{ ...S.listRow, cursor: "default" }}>
+        <div className="dataHead" style={{ ...S.listRow, cursor: "default" }}>
           <div style={{ ...th, flex: 1 }}>Date</div>
           <div style={{ ...th, flex: 1.4 }}>Employee</div>
           <div style={{ ...th, flex: 1, textAlign: "right" }}>Company ₹</div>
@@ -1915,15 +1949,15 @@ function TargetsView({
           <div style={{ width: 66 }} />
         </div>
         {monthIns.map((r) => (
-          <div key={r.id} className="row" style={S.listRow}>
-            <div style={{ flex: 1, fontSize: 12, color: "#6B7280", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.earnedOn}</div>
-            <div style={{ flex: 1.4, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{nameOf(r.username)}</div>
-            <div style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(r.companyRevenue)}</div>
-            <div style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(insuranceSplit(r.companyRevenue ?? 0).sales)}</div>
-            <div style={{ flex: 1.4, color: "#374151", fontSize: 12, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.note || "—"}</div>
-            <div style={{ width: 66, textAlign: "right" }}>
+          <div key={r.id} className="row dataRow" style={S.listRow}>
+            <DataCell label="Date" style={{ flex: 1, fontSize: 12, color: "#6B7280", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.earnedOn}</DataCell>
+            <DataCell label="Employee" style={{ flex: 1.4, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{nameOf(r.username)}</DataCell>
+            <DataCell label="Company ₹" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(r.companyRevenue)}</DataCell>
+            <DataCell label="Sales (50%)" className="dc-right" style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(insuranceSplit(r.companyRevenue ?? 0).sales)}</DataCell>
+            <DataCell label="Note" className="dc-span" style={{ flex: 1.4, color: "#374151", fontSize: 12, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.note || "—"}</DataCell>
+            <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
               <button className="ghost sm" onClick={() => onDeleteInsurance(r.id)}>Delete</button>
-            </div>
+            </DataCell>
           </div>
         ))}
         {monthIns.length === 0 && (
@@ -2141,23 +2175,23 @@ const SHADOW = {
 const RADIUS = { sm: 8, md: 10, lg: 14, pill: 999 };
 
 const S: Record<string, React.CSSProperties> = {
-  app: { fontFamily: "'Inter', system-ui, sans-serif", background: "#F6F7F9", minHeight: "100vh", color: "#111827", WebkitFontSmoothing: "antialiased" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#07163F", color: "#fff", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 2px 0 #E0AA3D, 0 4px 16px rgba(7,22,63,.25)" },
-  brand: { display: "flex", alignItems: "center", gap: 12 },
-  logoImg: { height: 38, width: 38, borderRadius: RADIUS.sm, objectFit: "cover" },
+  app: { fontFamily: "'Inter', system-ui, sans-serif", background: "#F6F7F9", minHeight: "100vh", color: "#111827", WebkitFontSmoothing: "antialiased", overflowX: "hidden" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, padding: "14px 24px", background: "#07163F", color: "#fff", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 2px 0 #E0AA3D, 0 4px 16px rgba(7,22,63,.25)" },
+  brand: { display: "flex", alignItems: "center", gap: 12, minWidth: 0 },
+  logoImg: { height: 38, width: 38, borderRadius: RADIUS.sm, objectFit: "cover", flexShrink: 0 },
   brandName: { fontWeight: 700, fontSize: 16, letterSpacing: ".2px" },
   brandSub: { fontSize: 11, color: "#C9A75A", marginTop: 1 },
-  userSwitch: { display: "flex", alignItems: "center", gap: 14 },
-  whoami: { fontSize: 13, color: "#fff", display: "flex", alignItems: "center", gap: 8 },
+  userSwitch: { display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "wrap" },
+  whoami: { fontSize: 13, color: "#fff", display: "flex", alignItems: "center", gap: 8, minWidth: 0 },
   roleTag: { fontSize: 10, fontWeight: 700, background: "#E0AA3D", color: "#07163F", padding: "3px 8px", borderRadius: RADIUS.pill, letterSpacing: ".4px" },
   body: { padding: "20px 24px 32px", maxWidth: 1440, margin: "0 auto" },
   errorBar: { background: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B", fontSize: 13, padding: "12px 16px", borderRadius: RADIUS.md, marginBottom: 16, boxShadow: SHADOW.xs },
   statBar: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 20 },
-  statCard: { background: "#fff", borderRadius: RADIUS.lg, padding: "14px 18px", boxShadow: SHADOW.xs, border: "1px solid #EEF0F3" },
-  statValue: { fontSize: 22, fontWeight: 700, color: "#07163F", lineHeight: 1.2, letterSpacing: "-.2px" },
+  statCard: { background: "#fff", borderRadius: RADIUS.lg, padding: "14px 18px", boxShadow: SHADOW.xs, border: "1px solid #EEF0F3", minWidth: 0 },
+  statValue: { fontSize: 22, fontWeight: 700, color: "#07163F", lineHeight: 1.2, letterSpacing: "-.2px", overflowWrap: "anywhere" },
   statLabel: { fontSize: 11, color: "#6B7280", marginTop: 4, fontWeight: 500 },
   toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 },
-  tabs: { display: "flex", gap: 4, background: "#EBEDF1", padding: 4, borderRadius: RADIUS.md },
+  tabs: { display: "flex", gap: 4, background: "#EBEDF1", padding: 4, borderRadius: RADIUS.md, overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" },
   filters: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
   column: { background: "#fff", borderRadius: RADIUS.lg, boxShadow: SHADOW.sm, border: "1px solid #EEF0F3", display: "flex", flexDirection: "column", minHeight: 0 },
   colHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderTop: "3px solid", borderRadius: `${RADIUS.lg}px ${RADIUS.lg}px 0 0` },
@@ -2174,7 +2208,7 @@ const S: Record<string, React.CSSProperties> = {
   cardMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10.5, color: "#6B7280", marginTop: 5 },
   empty: { fontSize: 12, color: "#9CA3AF", textAlign: "center", padding: "16px 12px", border: "1px dashed #E5E7EB", borderRadius: RADIUS.sm },
   list: { background: "#fff", borderRadius: RADIUS.lg, overflow: "hidden", boxShadow: SHADOW.sm, border: "1px solid #EEF0F3" },
-  listRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: "1px solid #F3F4F6", cursor: "pointer", transition: "background .12s ease" },
+  listRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: "1px solid #F3F4F6", cursor: "pointer", transition: "background .12s ease", minWidth: 0 },
   rowPhone: { fontSize: 12, color: "#6B7280", marginTop: 2 },
   reqText: { fontSize: 12, color: "#374151", lineHeight: 1.4 },
   dueDate: { fontSize: 12, fontWeight: 700, color: "#B45309" },
@@ -2182,9 +2216,9 @@ const S: Record<string, React.CSSProperties> = {
   celebrateBanner: { background: "#ECFDF5", border: "1px solid #A7F3D0", color: "#065F46", fontSize: 13, fontWeight: 600, padding: "12px 16px", borderRadius: RADIUS.md, marginBottom: 16, lineHeight: 1.4 },
   progressTrack: { height: 6, background: "#EEF0F3", borderRadius: 99, marginTop: 6, overflow: "hidden" },
   progressFill: { height: "100%", borderRadius: 99, transition: "width .2s ease" },
-  periodGroup: { display: "flex", background: "#EBEDF1", padding: 3, borderRadius: RADIUS.md, gap: 2 },
+  periodGroup: { display: "flex", flexWrap: "wrap", background: "#EBEDF1", padding: 3, borderRadius: RADIUS.md, gap: 2 },
   stagePill: { color: "#fff", fontSize: 10.5, fontWeight: 700, padding: "4px 11px", borderRadius: RADIUS.pill, display: "inline-block", letterSpacing: ".2px" },
-  overlay: { position: "fixed", inset: 0, background: "rgba(7,22,63,.55)", display: "flex", justifyContent: "flex-end", zIndex: 50, backdropFilter: "blur(1px)" },
+  overlay: { position: "fixed", inset: 0, background: "rgba(7,22,63,.55)", display: "flex", justifyContent: "flex-end", zIndex: 50, backdropFilter: "blur(1px)", padding: 0 },
   drawer: { width: "100%", maxWidth: 460, background: "#F9FAFB", height: "100%", overflowY: "auto", padding: 24, boxShadow: SHADOW.lg },
   drawerHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 },
   drawerName: { fontSize: 20, fontWeight: 700, letterSpacing: "-.2px" },
@@ -2204,7 +2238,7 @@ const S: Record<string, React.CSSProperties> = {
   sysText: { fontSize: 12, color: "#475569", fontWeight: 500 },
   noteMeta: { fontSize: 11, color: "#9CA3AF", marginTop: 4 },
   noteInput: { display: "flex", gap: 8 },
-  modal: { background: "#fff", borderRadius: RADIUS.lg, padding: 22, width: "90%", maxWidth: 380, margin: "auto", display: "flex", flexDirection: "column", gap: 4, boxShadow: SHADOW.lg },
+  modal: { background: "#fff", borderRadius: RADIUS.lg, padding: 22, width: "min(90%, 380px)", maxWidth: 380, margin: "auto", display: "flex", flexDirection: "column", gap: 4, boxShadow: SHADOW.lg, maxHeight: "90vh", overflowY: "auto" },
   mInput: { marginTop: 8 },
   formLabel: { fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4, display: "block" },
   req: { color: "#DC2626" },
@@ -2213,14 +2247,15 @@ const S: Record<string, React.CSSProperties> = {
 
 const CSS = `
   * { box-sizing: border-box; }
+  html, body, #root { max-width: 100%; overflow-x: hidden; }
   ::selection { background: rgba(224,170,61,.35); }
-  .tab { border: none; background: transparent; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #6B7280; cursor: pointer; transition: background .12s ease, color .12s ease; }
+  .tab { border: none; background: transparent; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #6B7280; cursor: pointer; transition: background .12s ease, color .12s ease; white-space: nowrap; }
   .tab:hover { color: #07163F; }
   .tab.active { background: #fff; color: #07163F; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
-  .periodbtn { border: none; background: transparent; padding: 7px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; color: #6B7280; cursor: pointer; display: inline-flex; align-items: center; }
+  .periodbtn { border: none; background: transparent; padding: 7px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; color: #6B7280; cursor: pointer; display: inline-flex; align-items: center; white-space: nowrap; }
   .periodbtn:hover { color: #07163F; }
   .periodbtn.active { background: #07163F; color: #fff; }
-  .sel, .ninput { padding: 9px 12px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 13px; background: #fff; color: #111827; transition: border-color .12s ease, box-shadow .12s ease; }
+  .sel, .ninput { padding: 9px 12px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 13px; background: #fff; color: #111827; transition: border-color .12s ease, box-shadow .12s ease; max-width: 100%; }
   .sel { cursor: pointer; }
   .sel:hover, .ninput:hover { border-color: #B8BFC9; }
   .sel:focus, .ninput:focus { outline: none; border-color: #E0AA3D; box-shadow: 0 0 0 3px rgba(224,170,61,.18); }
@@ -2232,6 +2267,8 @@ const CSS = `
   .ghost:hover { border-color: #07163F; background: #FAFAFB; }
   .ghost:active { transform: translateY(1px); }
   .ghost.sm { padding: 7px 12px; font-size: 12px; }
+  .ghost.onDark { background: transparent; color: #fff; border-color: rgba(255,255,255,.35); }
+  .ghost.onDark:hover { background: rgba(255,255,255,.08); border-color: #E0AA3D; color: #fff; }
   .danger { background: #fff; border: 1px solid #FECACA; color: #991B1B; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: background .12s ease, border-color .12s ease; }
   .danger:hover { background: #FEF2F2; border-color: #DC2626; }
   .danger:disabled { cursor: not-allowed; }
@@ -2248,8 +2285,11 @@ const CSS = `
   button:focus-visible, .ninput:focus-visible, .sel:focus-visible { outline: 2px solid #E0AA3D; outline-offset: 2px; }
 
   .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
-  @media (max-width: 1000px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  @media (max-width: 640px) { .board { grid-template-columns: 1fr; } .tab { padding: 8px 12px; } }
+  .stackStrip { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 280px); gap: 12px; margin-bottom: 16px; }
+  .metricsGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .metricLine { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; min-width: 0; }
+  .metricLine span { min-width: 0; overflow-wrap: anywhere; }
+  .dc { min-width: 0; }
 
   .spinner { width: 28px; height: 28px; margin: 0 auto 14px; border: 3px solid rgba(7,22,63,.12); border-top-color: #E0AA3D; border-radius: 50%; animation: spin .8s linear infinite; }
 
@@ -2258,4 +2298,45 @@ const CSS = `
   .colBody::-webkit-scrollbar-thumb { background: rgba(15,23,42,.18); border-radius: 999px; }
   .colBody::-webkit-scrollbar-track { background: transparent; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 1000px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+  @media (max-width: 720px) {
+    .appHeader { padding: 10px 12px !important; }
+    .brandSub { display: none; }
+    .whoami { max-width: 58vw; }
+    .whoamiText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .appBody { padding: 12px 12px 28px !important; }
+    .statBar { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+    .stackStrip { grid-template-columns: 1fr; }
+    .metricsGrid { grid-template-columns: 1fr; }
+    .toolbar { flex-direction: column; align-items: stretch !important; }
+    .tab { padding: 8px 12px; }
+    .board { grid-template-columns: 1fr; }
+    .sel, .ninput { font-size: 16px; }
+    .dataHead { display: none !important; }
+    .dataRow {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      align-items: start !important;
+      gap: 10px 12px;
+      padding: 14px !important;
+    }
+    .dc[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      color: #6B7280;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      margin-bottom: 3px;
+    }
+    .dc-span { grid-column: 1 / -1; }
+    .dc-right { text-align: left !important; }
+    .dc-actions { grid-column: 1 / -1; width: auto !important; text-align: right; }
+    .monthLabel { min-width: 0 !important; flex: 1; }
+    .colBody { max-height: none !important; }
+    .appHeader img { height: 32px !important; width: 32px !important; }
+  }
 `;

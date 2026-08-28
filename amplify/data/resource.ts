@@ -153,6 +153,9 @@ const schema = a.schema({
       allow.group('admin'),
       // A dealer sees and manages only their own trades.
       allow.ownerDefinedIn('owner'),
+      // Sales/RM named as Account Opened By can read those trades so
+      // their login can show Account trading incentive. No writes.
+      allow.ownerDefinedIn('accountOpenedBy').to(['read']),
     ]),
 
   // Company-set individual quotas, one row per cadence. Same numbers

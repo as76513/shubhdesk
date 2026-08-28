@@ -13,7 +13,8 @@ type CompanyTarget = Schema["CompanyTarget"]["type"];
  *
  * Trading:  company = brokerage − 20% platform
  *           dealer  = 30% of company
- *           if accountOpenedBy is set and is not the dealer, that 30% is halved
+ *           if accountOpenedBy is set and is not the dealer, that 30% is
+ *           split 50/50 — dealer keeps half, the opener gets the other half
  * Insurance: company is admin-entered; salesperson = 50% of company
  */
 export const TRADING_PLATFORM_FEE = 0.2;
@@ -124,7 +125,26 @@ export function companyRevenueFor(
   return trading + ins;
 }
 
-/** Employee payout in the range: dealer 30% of trading company, sales 50% of insurance company. */
+/**
+ * Opener's share when they are Trade.accountOpenedBy (not OWN / not the dealer).
+ * Same rupee amount as the dealer's halved payout on that trade.
+ */
+export function accountOpenedIncentiveFor(
+  username: string,
+  range: { start: string; end: string },
+  trades: Trade[]
+): number {
+  return trades
+    .filter(
+      (t) =>
+        t.accountOpenedBy === username &&
+        openedByOther(t) &&
+        inDateRange(t.createdAt, range.start, range.end)
+    )
+    .reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
+}
+
+/** Employee payout in the range: dealer cut + opener cut + insurance 50%. */
 export function incentiveFor(
   username: string,
   range: { start: string; end: string },
@@ -134,10 +154,11 @@ export function incentiveFor(
   const dealerCut = trades
     .filter((t) => t.owner === username && inDateRange(t.createdAt, range.start, range.end))
     .reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
+  const openerCut = accountOpenedIncentiveFor(username, range, trades);
   const salesCut = insurance
     .filter((r) => r.username === username && inDateRange(r.earnedOn, range.start, range.end))
     .reduce((s, r) => s + insuranceSplit(r.companyRevenue ?? 0).sales, 0);
-  return dealerCut + salesCut;
+  return dealerCut + openerCut + salesCut;
 }
 
 export function findTarget(

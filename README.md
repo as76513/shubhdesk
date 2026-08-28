@@ -311,7 +311,9 @@ From `Trade.brokerage`:
 1. **Company** = brokerage − 20% platform fee (`brokerage × 0.8`).
 2. **Dealer payout** = 30% of company (`× 0.3`).
 3. If **Account Opened By** is someone other than OWN / this dealer:
-   that 30% is multiplied by **0.5**.
+   that 30% is split **50/50** — the dealer keeps half, the salesman
+   who opened the account gets the other half (**Account trading
+   incentive** on their login).
 
 The top **Dealer / Employee Revenue** card (admin Trades tab) is step 2 **without**
 step 3 (full 30% pool). Per-trade **Dealer ₹** and the Dealer
@@ -330,9 +332,12 @@ No revenue formula yet. Closed Loans still count toward **NCA**
 Shown on sales/RM and dealer login as **This Month's Incentive**.
 Uses the calendar month being viewed (not a week). Formula
 (`incentiveFor`): dealer cut from their trades in that month (with
-the opened-by rule) + insurance salesperson 50% for rows dated that
-month. The employee CSV **Incentive Earned** column uses the same
-function for whichever report period is chosen.
+the opened-by rule) + **Account trading incentive** (same halved
+dealer cut, for trades where they are Account Opened By) + insurance
+salesperson 50% for rows dated that month. Sales/RM see the account-
+trading amount as its own line under the total. The employee CSV
+**Incentive Earned** column uses the same function for whichever
+report period is chosen.
 
 ---
 
