@@ -3,7 +3,9 @@
 > **Superseded.** This was the pre-build design. What shipped is different:
 > shared NCA / AUM / SIP / Insurance quotas (`CompanyTarget`), not a
 > per-employee weekly ₹ target for sales/RM; trading/insurance splits in
-> `src/revenue.ts` instead of an `IncentiveRate` model. See
+> `src/revenue.ts` instead of an `IncentiveRate` model; **monthly**
+> incentive (plus Account trading incentive for openers); dealer login
+> shows only their payout. See
 > [README.md — How numbers are calculated](./README.md#how-numbers-are-calculated).
 > Keep this file only as historical context — do not implement the models
 > below as written.

@@ -1427,6 +1427,43 @@ function Field({ label, required, children }: { label: string; required?: boolea
   );
 }
 
+function ConfirmDelete({
+  title,
+  detail,
+  confirmLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  detail: React.ReactNode;
+  confirmLabel: string;
+  busy?: boolean;
+  onConfirm: () => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  return (
+    <div style={S.overlay} onClick={() => !busy && onCancel()}>
+      <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={S.drawerName}>{title}</div>
+        <div style={S.hint}>This cannot be undone.</div>
+        <div style={{ marginTop: 12, fontSize: 14, fontWeight: 600, lineHeight: 1.4 }}>{detail}</div>
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button
+            className="danger"
+            onClick={onConfirm}
+            disabled={busy}
+            style={{ flex: 1, opacity: busy ? 0.6 : 1 }}
+          >
+            {busy ? "Deleting…" : confirmLabel}
+          </button>
+          <button className="ghost" onClick={onCancel} disabled={busy}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDelete }: {
   trades: Trade[];
   staff: Staff[];
@@ -1448,6 +1485,8 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
   onDelete: (id: string) => void;
 }) {
   const [editing, setEditing] = useState<Trade | "new" | null>(null);
+  const [deleteTrade, setDeleteTrade] = useState<Trade | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [period, setPeriod] = useState<TradePeriod>("thisMonth");
   const [downloadDate, setDownloadDate] = useState(todayISO());
 
@@ -1471,9 +1510,13 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
   }
 
   const range = tradePeriodRange(period, downloadDate);
+  const tradesNewestFirst = useMemo(
+    () => trades.slice().sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")),
+    [trades]
+  );
   const periodTrades = useMemo(
-    () => trades.filter((t) => inDateRange(t.createdAt, range.start, range.end)),
-    [trades, range.start, range.end]
+    () => tradesNewestFirst.filter((t) => inDateRange(t.createdAt, range.start, range.end)),
+    [tradesNewestFirst, range.start, range.end]
   );
 
   function download() {
@@ -1605,7 +1648,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           <div style={{ ...th, flex: 1, textAlign: "right" }}>{isAdmin ? "Dealer ₹" : "Your ₹"}</div>
           <div style={{ width: 66 }} />
         </div>
-        {trades.map((t) => {
+        {tradesNewestFirst.map((t) => {
           const split = tradingSplit(t.brokerage ?? 0, t);
           return (
             <div key={t.id} className="row dataRow" style={S.listRow}>
@@ -1640,7 +1683,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
               )}
               <DataCell label={isAdmin ? "Dealer ₹" : "Your ₹"} className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, color: openedByOther(t) ? "#B45309" : "#07163F" }}>{rupee(split.dealer)}</DataCell>
               <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
-                <button className="ghost sm" onClick={() => onDelete(t.id)}>Delete</button>
+                <button className="ghost sm" onClick={() => setDeleteTrade(t)}>Delete</button>
               </DataCell>
             </div>
           );
@@ -1656,6 +1699,22 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           nameOf={nameOf}
           onClose={() => setEditing(null)}
           onSave={handleSave}
+        />
+      )}
+
+      {deleteTrade && (
+        <ConfirmDelete
+          title="Delete this trade?"
+          detail={`${deleteTrade.clientName} · ${rupee(deleteTrade.brokerage)}`}
+          confirmLabel="Delete trade"
+          busy={deleting}
+          onCancel={() => !deleting && setDeleteTrade(null)}
+          onConfirm={async () => {
+            setDeleting(true);
+            await onDelete(deleteTrade.id);
+            setDeleting(false);
+            setDeleteTrade(null);
+          }}
         />
       )}
     </div>
@@ -1780,6 +1839,8 @@ function TargetsView({
   const [saving, setSaving] = useState(false);
   const [quotasOpen, setQuotasOpen] = useState(false);
   const [editingIns, setEditingIns] = useState<InsuranceRevenue | "new" | null>(null);
+  const [deleteIns, setDeleteIns] = useState<InsuranceRevenue | null>(null);
+  const [deletingIns, setDeletingIns] = useState(false);
   const [form, setForm] = useState({
     monthly: DEFAULT_COMPANY_TARGETS.monthly,
     quarterly: DEFAULT_COMPANY_TARGETS.quarterly,
@@ -1956,7 +2017,7 @@ function TargetsView({
             <DataCell label="Sales (50%)" className="dc-right" style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(insuranceSplit(r.companyRevenue ?? 0).sales)}</DataCell>
             <DataCell label="Note" className="dc-span" style={{ flex: 1.4, color: "#374151", fontSize: 12, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.note || "—"}</DataCell>
             <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
-              <button className="ghost sm" onClick={() => onDeleteInsurance(r.id)}>Delete</button>
+              <button className="ghost sm" onClick={() => setDeleteIns(r)}>Delete</button>
             </DataCell>
           </div>
         ))}
@@ -1972,6 +2033,22 @@ function TargetsView({
           defaultDate={viewMonth === monthStartOf() ? todayISO() : viewMonth}
           onClose={() => setEditingIns(null)}
           onSave={handleSaveInsurance}
+        />
+      )}
+
+      {deleteIns && (
+        <ConfirmDelete
+          title="Delete this insurance entry?"
+          detail={`${nameOf(deleteIns.username)} · ${rupee(deleteIns.companyRevenue)} · ${deleteIns.earnedOn}`}
+          confirmLabel="Delete entry"
+          busy={deletingIns}
+          onCancel={() => !deletingIns && setDeleteIns(null)}
+          onConfirm={async () => {
+            setDeletingIns(true);
+            await onDeleteInsurance(deleteIns.id);
+            setDeletingIns(false);
+            setDeleteIns(null);
+          }}
         />
       )}
     </div>

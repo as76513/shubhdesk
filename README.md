@@ -151,8 +151,15 @@ Admins get an extra **Trades** tab showing every dealer's trades, with:
   payout × 0.5. Dealers are not in the opener list. Stored on
   `Trade.accountOpenedBy` as `OWN` or a Cognito username (never omit
   the field — Amplify skips `null` on update).
-- CSV columns: Date, Dealer, Client Name, Buying Lot, Account Opened
-  By, Brokerage, Company Revenue, Dealer Revenue.
+- **All Trades** is sorted by `createdAt`, **newest first**. Deleting a
+  trade asks for confirmation (client name + brokerage).
+- CSV: admin gets Date, Dealer, Client Name, Buying Lot, Account Opened
+  By, Brokerage, Company Revenue, Dealer Revenue. A dealer download
+  omits brokerage and company ₹ — only their payout.
+
+The UI is **phone-friendly** (≤720px): header wraps, progress +
+incentive stack, and trade/lead/insurance rows become labeled cards
+instead of a clipped table.
 
 ---
 
@@ -160,10 +167,10 @@ Admins get an extra **Trades** tab showing every dealer's trades, with:
 
 | Role   | Sees | Can do |
 |--------|------|--------|
-| sales  | own + sourced leads | create leads, hand off to RM from New; own NCA/AUM/SIP/Insurance strip |
-| rm     | all leads (read); owned leads (write) | take handoffs, run Meeting→Closed, win-back list; own progress strip |
-| dealer | own trades only | log/edit/delete their own trades; this month's incentive |
-| admin  | everything | pipeline, Trades, Targets, employee CSV, lead delete, insurance entries, Account Opened By |
+| sales  | own + sourced leads | create leads, hand off to RM from New; own NCA/AUM/SIP/Insurance strip + monthly incentive + Account trading incentive |
+| rm     | all leads (read); owned leads (write) | take handoffs, run Meeting→Closed, win-back list; own progress strip + monthly incentive |
+| dealer | own trades only | log/edit/delete their own trades (delete confirmed); this month's incentive; Your Revenue only |
+| admin  | everything | pipeline, Trades, Targets, employee CSV, confirmed deletes (lead / trade / insurance), Account Opened By |
 
 All of this is enforced **server-side**, not just hidden in the UI — the
 auth rules in `amplify/data/resource.ts` (`allow.ownerDefinedIn('owner')`,
@@ -223,7 +230,9 @@ This Month / Last Month, per employee: leads sourced, deals closed
 - **Revenue Actual** = trading **company** ₹ from trades they own
   (brokerage − 20% platform) + insurance company ₹ attributed to them.
   **Incentive Earned** = dealer payout on those trades (with the
-  opened-by 50% rule) + 50% of their insurance company ₹.
+  opened-by 50% rule) + **Account trading incentive** (same halved
+  cut, if they are Account Opened By) + 50% of their insurance
+  company ₹.
 
 Computed client-side from data already loaded — see `src/report.ts`.
 
@@ -249,6 +258,7 @@ Computed client-side from data already loaded — see `src/report.ts`.
   Q3 2026 / 2026).
 - **Insurance company revenue**: admin enters company ₹ attributed to
   a salesperson (`earnedOn` date); the UI shows their 50% automatically.
+  Deleting an entry asks for confirmation.
 
 On the **pipeline**, admin does **not** see per-person strips. They see
 **Company targets** = per-person quota × number of sales/RM, vs

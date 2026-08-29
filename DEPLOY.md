@@ -68,7 +68,8 @@ hand. Copy these files into your project's `src/`:
   signed-in user's role from their Cognito group, and calls the data
   client for every action. Includes loading and error states. Dealers
   skip the pipeline and see only trades; admin also has Trades and
-  Targets tabs.
+  Targets tabs. Layout stacks on phones (≤720px). Deletes (lead, trade,
+  insurance) always ask for confirmation.
 - `src/leadClient.ts` — Lead / Note / Staff / Counter (list, create,
   move/handoff, notes, follow-ups, staff directory, lead delete).
 - `src/tradeClient.ts` — Trade CRUD.

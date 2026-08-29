@@ -69,7 +69,7 @@ Every read the app does, and whether it's an efficient indexed `Query` or a `Sca
 | `listRMs()` | `StaffProfile` where `role = 'rm'` | Scan + filter — no index on `role`; paginated |
 | `listStaff()` | all staff | Scan; paginated |
 | `nextClientCode()` | get/update the `Counter` row for the current `period` | **Query/Get** by primary key — efficient by design |
-| `listTrades()` (`src/tradeClient.ts`) | trades the caller owns (dealer), opened (sales/RM via `accountOpenedBy`), or all (admin) | Scan; paginated; auth-filtered per item |
+| `listTrades()` (`src/tradeClient.ts`) | trades the caller owns (dealer), opened (sales/RM via `accountOpenedBy`), or all (admin) | Scan; paginated; auth-filtered per item. The All Trades UI then sorts by `createdAt` **newest first** — do not assume DynamoDB list order is chronological. |
 | `listTargets()` (`src/targetClient.ts`) | weekly targets the caller may see (own row for employees; all for admin) | Scan; paginated |
 | `listCompanyTargets()` (`src/targetClient.ts`) | the three cadence quota rows (monthly / quarterly / yearly) | Scan (3 rows); paginated |
 | `listInsuranceRevenue()` (`src/targetClient.ts`) | admin-entered insurance company revenue (own rows for employees; all for admin) | Scan; paginated |
