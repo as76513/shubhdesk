@@ -35,8 +35,10 @@ async function listAllPages<T>(
   return out;
 }
 
-// Stages owned by sales, mirroring the STAGES constant in App.tsx.
-const SALES_STAGES = ['new'];
+// Stages owned by sales, mirroring App.tsx. Entering HANDOFF_STAGE
+// from one of these (with an RM chosen) transfers owner.
+const SALES_STAGES = ['new', 'meeting'];
+const HANDOFF_STAGE = 'joint_meeting';
 
 export type Role = 'admin' | 'rm' | 'sales' | 'dealer';
 
@@ -228,10 +230,10 @@ const REJECTION_REASON_LABELS: Record<string, string> = {
 
 /**
  * Move a lead to a new stage.
- * If it's the sales -> RM handoff (entering "meeting" from a sales
- * stage), we also switch `owner` to the chosen RM and write a system
- * log entry — all in the same flow. After this, the salesman loses
- * write access automatically because he's no longer the owner.
+ * If it's the sales -> RM handoff (entering "joint_meeting" from a
+ * sales stage), we also switch `owner` to the chosen RM and write a
+ * system log entry — all in the same flow. After this, the salesman
+ * loses write access automatically because he's no longer the owner.
  *
  * `rejectionReason` is only meaningful when newStage is "rejected".
  */
@@ -243,7 +245,7 @@ export async function moveStage(
 ) {
   const me = await getCurrentUser();
   const isHandoff =
-    newStage === 'meeting' && SALES_STAGES.includes(lead.stage ?? '') && !!rmUsername;
+    newStage === HANDOFF_STAGE && SALES_STAGES.includes(lead.stage ?? '') && !!rmUsername;
 
   const update: Record<string, unknown> = { id: lead.id, stage: newStage };
   if (isHandoff) {

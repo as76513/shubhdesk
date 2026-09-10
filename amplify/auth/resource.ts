@@ -10,9 +10,8 @@ import { defineAuth } from '@aws-amplify/backend';
  * Groups:
  *   - sales  : telecaller / salesman (creates & works early-stage leads)
  *   - rm     : relationship manager (takes handoff, closes deals)
- *   - dealer : trade execution — standalone from the Lead pipeline,
- *              only sees/manages Trade records (Client Name, Buying
- *              Lot, Brokerage)
+ *   - dealer : trade log plus the same Lead pipeline as sales
+ *              (New Lead → Meeting → Joint Meeting → Deal Closed)
  *   - admin  : sees & edits everything
  */
 export const auth = defineAuth({

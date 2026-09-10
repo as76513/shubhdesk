@@ -17,11 +17,12 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
  *   - `owner`     = who currently controls the lead (auto-managed).
  *   - `sourcedBy` = the salesman who first created it (never changes).
  *
- * When a lead moves to the "meeting" stage, the app sets `owner` to
- * the chosen RM. From that moment the salesman is no longer the
- * owner, so his write access falls away automatically — but because
- * we ALSO allow the original `sourcedBy` user to READ, he keeps his
- * read-only visibility. Exactly the behaviour from the prototype.
+ * When a lead moves to the "joint_meeting" stage from a sales-owned
+ * stage (`new` or `meeting`), the app sets `owner` to the chosen RM.
+ * From that moment the salesman is no longer the owner, so his write
+ * access falls away automatically — but because we ALSO allow the
+ * original `sourcedBy` user to READ, he keeps his read-only
+ * visibility. Exactly the behaviour from the prototype.
  */
 
 const schema = a.schema({
@@ -36,9 +37,13 @@ const schema = a.schema({
 
       // --- Pipeline ---
       service: a.enum(['Trading', 'SIP', 'Insurance', 'Loans']),
+      // Live pipeline: new → meeting → joint_meeting → closed.
+      // followup / inprogress / rejected stay in the enum so existing
+      // DynamoDB items still read; they are not board stages.
       stage: a.enum([
         'new',
         'meeting',
+        'joint_meeting',
         'followup',
         'inprogress',
         'closed',
@@ -66,8 +71,9 @@ const schema = a.schema({
       closedAt: a.date(),
 
       // Calendar date of the sales→RM handoff (YYYY-MM-DD). Set once
-      // when owner is reassigned into "meeting". Report handoff counts
-      // use this instead of updatedAt for the same reason as closedAt.
+      // when owner is reassigned into "joint_meeting". Report handoff
+      // counts use this instead of updatedAt for the same reason as
+      // closedAt.
       handoffAt: a.date(),
 
       // Who currently controls the lead. Amplify keeps this in sync

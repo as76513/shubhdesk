@@ -95,14 +95,18 @@ type InsuranceRevenue = Schema["InsuranceRevenue"]["type"];
 
 const STAGES = [
   { id: "new", label: "New Lead", color: "#6B7280" },
-  { id: "meeting", label: "Meeting / Consultation", color: "#8B5CF6" },
-  { id: "followup", label: "Follow-up", color: "#F59E0B" },
-  { id: "inprogress", label: "Deal In Progress", color: "#EAB308" },
+  { id: "meeting", label: "Meeting", color: "#8B5CF6" },
+  { id: "joint_meeting", label: "Joint Meeting", color: "#0EA5E9" },
   { id: "closed", label: "Deal Closed", color: "#15803D" },
-  { id: "rejected", label: "Deal Rejected", color: "#DC2626" },
 ];
+const LEGACY_STAGES: Record<string, { label: string; color: string }> = {
+  followup: { label: "Follow-up", color: "#F59E0B" },
+  inprogress: { label: "Deal In Progress", color: "#EAB308" },
+  rejected: { label: "Deal Rejected", color: "#DC2626" },
+};
 const SERVICES = ["Trading", "SIP", "Insurance", "Loans"] as const;
-const SALES_STAGES = ["new"];
+const SALES_STAGES = ["new", "meeting"];
+const HANDOFF_STAGE = "joint_meeting";
 
 const SOURCES = [
   { id: "cold_call", label: "Cold Call" },
@@ -122,7 +126,16 @@ const REJECTION_REASONS = [
 ];
 
 const rupee = (n?: number | null) => "₹" + (n ?? 0).toLocaleString("en-IN");
-const stageOf = (id?: string | null) => STAGES.find((s) => s.id === id) ?? STAGES[0];
+const stageOf = (id?: string | null) => {
+  const live = STAGES.find((s) => s.id === id);
+  if (live) return live;
+  if (id && LEGACY_STAGES[id]) return { id, ...LEGACY_STAGES[id] };
+  return STAGES[0];
+};
+// Old follow-up / in-progress rows still exist; show them on Joint Meeting
+// so they don't vanish from the board. Rejected stays off the board.
+const boardStageId = (stage?: string | null) =>
+  stage === "followup" || stage === "inprogress" ? "joint_meeting" : (stage ?? "new");
 
 function DataCell({
   label,
@@ -208,9 +221,9 @@ export default function App() {
     }
   }, []);
 
-  // Initial load. Dealers only ever need Trade data — no point loading
-  // the entire lead pipeline for a role that can't see it. Admins get
-  // both, since they get a Trades tab alongside the pipeline.
+  // Initial load. Dealers get the sales pipeline (leads + RMs for
+  // handoff) plus their trades. They do not load weekly/company
+  // targets or insurance rows — no NCA quota for this role.
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -219,9 +232,16 @@ export default function App() {
         setMe(meInfo);
         await ensureOwnStaffProfile(meInfo.role);
         if (meInfo.role === "dealer") {
-          const [tr, st] = await Promise.all([listTrades(), listStaff()]);
-          setTrades(tr);
+          const [ls, st, rmList, tr] = await Promise.all([
+            listLeads(),
+            listStaff(),
+            listRMs(),
+            listTrades(),
+          ]);
+          setLeads(ls);
           setStaff(st);
+          setRms(rmList);
+          setTrades(tr);
         } else {
           const [ls, st, rmList, tg, ct, ir, tr] = await Promise.all([
             listLeads(),
@@ -354,11 +374,11 @@ export default function App() {
   }
 
   // Move a lead to a stage, routing through the RM-handoff prompt when
-  // needed. Shared by the drawer's "Move to stage" buttons and the
-  // board's drag-and-drop, so the handoff logic lives in one place.
+  // entering Joint Meeting from a sales stage. Shared by the drawer's
+  // buttons and the board's drag-and-drop.
   function requestMove(lead: Lead, targetStage: string) {
     if (!canEdit(lead) || targetStage === lead.stage) return;
-    if (targetStage === "meeting" && SALES_STAGES.includes(lead.stage ?? "")) {
+    if (targetStage === HANDOFF_STAGE && SALES_STAGES.includes(lead.stage ?? "")) {
       setHandoffPrompt({ lead, targetStage });
       return;
     }
@@ -544,40 +564,6 @@ export default function App() {
     );
   }
 
-  // Dealer is a standalone role — it never sees the Lead pipeline at
-  // all, just its own minimal trade log.
-  if (me?.role === "dealer") {
-    return (
-      <div style={S.app}>
-        <style>{CSS}</style>
-        <Header me={me} />
-        <div className="appBody" style={S.body}>
-          {error && (
-            <div style={S.errorBar}>
-              <span style={{ whiteSpace: "pre-line" }}>{error}</span>{" "}
-              <button className="linkbtn" onClick={refreshTrades}>Retry</button>
-            </div>
-          )}
-          <div className="statBar" style={{ ...S.statBar, marginBottom: 16 }}>
-            <div style={S.statCard}>
-              <div style={S.statValue}>{rupee(myIncentive)}</div>
-              <div style={S.statLabel}>This Month's Incentive</div>
-            </div>
-          </div>
-          <TradesView
-            trades={trades}
-            staff={staff}
-            isAdmin={false}
-            nameOf={nameOf}
-            onCreate={handleCreateTrade}
-            onUpdate={handleUpdateTrade}
-            onDelete={handleDeleteTrade}
-          />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={S.app}>
       <style>{CSS}</style>
@@ -587,7 +573,7 @@ export default function App() {
         {error && (
           <div style={S.errorBar}>
             <span style={{ whiteSpace: "pre-line" }}>{error}</span>{" "}
-            <button className="linkbtn" onClick={refresh}>Retry</button>
+            <button className="linkbtn" onClick={() => { refresh(); if (me?.role === "dealer") refreshTrades(); }}>Retry</button>
           </div>
         )}
 
@@ -607,6 +593,13 @@ export default function App() {
               />
             </>
           ) : null
+        ) : me?.role === "dealer" ? (
+          <div className="statBar" style={{ ...S.statBar, marginBottom: 16 }}>
+            <div style={S.statCard}>
+              <div style={S.statValue}>{rupee(myIncentive)}</div>
+              <div style={S.statLabel}>This Month's Incentive</div>
+            </div>
+          </div>
         ) : (
           <>
             {hitMonthlyTarget && (
@@ -634,7 +627,7 @@ export default function App() {
                 Follow-ups Due{dueLeads.length > 0 ? ` (${dueLeads.length})` : ""}
               </button>
             )}
-            {me?.role === "admin" && (
+            {(me?.role === "admin" || me?.role === "dealer") && (
               <button className={view === "trades" ? "tab active" : "tab"} onClick={() => setView("trades")}>Trades</button>
             )}
             {me?.role === "admin" && (
@@ -669,7 +662,7 @@ export default function App() {
           <TradesView
             trades={trades}
             staff={staff}
-            isAdmin
+            isAdmin={me?.role === "admin"}
             nameOf={nameOf}
             onCreate={handleCreateTrade}
             onUpdate={handleUpdateTrade}
@@ -712,7 +705,7 @@ export default function App() {
         <div style={S.overlay} onClick={() => setHandoffPrompt(null)}>
           <div style={S.modal} onClick={(e) => e.stopPropagation()}>
             <div style={S.drawerName}>Hand off to RM</div>
-            <div style={S.hint}>Pick the Relationship Manager who'll take this meeting. Ownership transfers to them.</div>
+            <div style={S.hint}>Pick the Relationship Manager who will join the joint meeting. Ownership transfers to them.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
               {rms.length === 0 && <div style={S.empty}>No RMs found. Add RM staff profiles first.</div>}
               {rms.map((rm) => (
@@ -1104,7 +1097,7 @@ function Board({ leads, onOpen, nameOf, onMove, canEdit }: {
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveLead(null)}>
       <div className="board">
         {STAGES.map((stage) => {
-          const items = leads.filter((l) => l.stage === stage.id);
+          const items = leads.filter((l) => boardStageId(l.stage) === stage.id);
           return (
             <DroppableColumn key={stage.id} stage={stage} count={items.length}>
               {items.map((l) => (
@@ -1350,7 +1343,37 @@ function LeadDrawer({
                 ✕ Client Rejected
               </button>
             </div>
-            <div style={S.hint}>Proceeding hands the lead to an RM. Rejecting records it as a lost lead under "Deal Rejected" — you can still set a win-back follow-up date below.</div>
+            <div style={S.hint}>Meeting stays with sales. Joint Meeting later hands the lead to an RM. Rejecting records a lost lead — you can still set a win-back follow-up date.</div>
+          </div>
+        )}
+
+        {canEdit && lead.stage === "meeting" && (
+          <div style={S.drawerSection}>
+            <div style={S.sectionLabel}>Ready for a joint meeting?</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="primary" style={{ flex: 1 }} onClick={() => handleStageClick("joint_meeting")}>
+                → Proceed to Joint Meeting
+              </button>
+              <button className="ghost" style={{ flex: 1, borderColor: "#DC2626", color: "#DC2626" }} onClick={() => handleStageClick("rejected")}>
+                ✕ Client Rejected
+              </button>
+            </div>
+            <div style={S.hint}>Proceeding hands the lead to an RM for the joint meeting.</div>
+          </div>
+        )}
+
+        {canEdit && lead.stage === "joint_meeting" && (
+          <div style={S.drawerSection}>
+            <div style={S.sectionLabel}>Did the deal close?</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="primary" style={{ flex: 1 }} onClick={() => handleStageClick("closed")}>
+                → Deal Closed
+              </button>
+              <button className="ghost" style={{ flex: 1, borderColor: "#DC2626", color: "#DC2626" }} onClick={() => handleStageClick("rejected")}>
+                ✕ Client Rejected
+              </button>
+            </div>
+            <div style={S.hint}>Closing stamps the close date used for NCA / AUM / SIP.</div>
           </div>
         )}
 
@@ -1366,12 +1389,21 @@ function LeadDrawer({
                     color: s.id === lead.stage ? s.color : "#374151",
                   }}
                   onClick={() => handleStageClick(s.id)}>
-                  {s.label}{s.id === "meeting" && SALES_STAGES.includes(lead.stage ?? "") && " →RM"}
+                  {s.label}{s.id === HANDOFF_STAGE && SALES_STAGES.includes(lead.stage ?? "") && " →RM"}
                 </button>
               ))}
             </div>
             {SALES_STAGES.includes(lead.stage ?? "") && (
-              <div style={S.hint}>Moving to "Meeting" hands the lead to an RM.</div>
+              <div style={S.hint}>Moving to "Joint Meeting" hands the lead to an RM.</div>
+            )}
+            {lead.stage !== "new" && lead.stage !== "meeting" && lead.stage !== "joint_meeting" && lead.stage !== "rejected" && (
+              <button
+                className="ghost"
+                style={{ marginTop: 10, borderColor: "#DC2626", color: "#DC2626", width: "100%" }}
+                onClick={() => handleStageClick("rejected")}
+              >
+                ✕ Client Rejected
+              </button>
             )}
           </div>
         )}
@@ -2361,7 +2393,7 @@ const CSS = `
   .addbtn:hover { background: #0F1F52; }
   button:focus-visible, .ninput:focus-visible, .sel:focus-visible { outline: 2px solid #E0AA3D; outline-offset: 2px; }
 
-  .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
   .stackStrip { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 280px); gap: 12px; margin-bottom: 16px; }
   .metricsGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
   .metricLine { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; min-width: 0; }

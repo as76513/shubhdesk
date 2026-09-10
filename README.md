@@ -67,21 +67,19 @@ SCHEMA_DESIGN.md      Data model, access patterns, NoSQL design notes
 
 ## Pipeline workflow
 
-Stages, in order: **New Lead → Meeting/Consultation → Follow-up →
-Deal In Progress → Deal Closed / Deal Rejected.**
+Stages, in order: **New Lead → Meeting → Joint Meeting → Deal Closed.**
+Follow-up, Deal In Progress, and Rejected are no longer pipeline
+columns. Existing rows in those old stages still load (the GraphQL
+enum keeps the values); leftover Follow-up / In Progress cards show
+under Joint Meeting. Rejected leads stay in List, not on the board.
 
-From **New Lead**, the drawer shows an explicit choice rather than a
-generic dropdown — "→ Proceed to Meeting" or "✕ Client Rejected" — so
-that outcome is a visible decision point, not just one option buried in
-a grid of every stage. Rejected is also reachable from any later stage
-(a deal can fall through after a meeting too), via the full stage grid
-below that choice. Rejecting (from anywhere) requires picking a
-one-click **reason** (Not Interested / Chose Competitor / Budget / Bad
-Timing / Other) — no skipping — which feeds the win-back follow-up
-decision later. The reason is shown as a red badge next to the stage
-pill in the drawer, and on the board it replaces the owner's name in
-a rejected lead's card (once a lead is dead, why it died is more
-useful than who owns it).
+From **New Lead**, the drawer shows "→ Proceed to Meeting" or
+"✕ Client Rejected". Meeting stays with sales. From **Meeting**,
+"→ Proceed to Joint Meeting" hands the lead to an RM. Rejecting
+(from anywhere) requires picking a one-click **reason** (Not
+Interested / Chose Competitor / Budget / Bad Timing / Other) — no
+skipping — which feeds the win-back follow-up decision later. The
+reason is shown as a red badge next to the stage pill in the drawer.
 
 The **Activity Log** in the drawer states each transition explicitly
 ("Moved from new to meeting", "Handed off to Anita by Amol
@@ -99,12 +97,13 @@ lead creation.
 **Board view** supports drag-and-drop: pick up a lead card (mouse click
 and drag, or press-and-hold then drag on touch) and drop it on another
 column to move it. Only leads you can edit are draggable, and dropping
-on **Meeting** from a sales stage still triggers the RM-handoff picker
-described below — drag-and-drop and the drawer's buttons both funnel
-through the same move logic, so there's one behavior everywhere.
+on **Joint Meeting** from New Lead or Meeting still triggers the
+RM-handoff picker described below — drag-and-drop and the drawer's
+buttons both funnel through the same move logic, so there's one
+behavior everywhere.
 
-**Sales → RM handoff**: moving a lead into **Meeting** from **New**
-(the only sales-owned stage now) prompts you to pick a Relationship
+**Sales → RM handoff**: moving a lead into **Joint Meeting** from
+**New Lead** or **Meeting** prompts you to pick a Relationship
 Manager. Ownership transfers to them immediately; the original
 salesman keeps permanent **read-only** visibility (`sourcedBy`) and can
 follow progress but not edit or comment further.
@@ -127,14 +126,14 @@ after a confirmation that shows client code + name.
 
 ## Dealer trade log
 
-**Dealer is a separate, standalone role** — it has nothing to do with
-the Lead pipeline above. A Dealer's entire screen is a simple log of
-trades: **Client Name, Buying Lot, Brokerage**, plus **Account Opened
-By**. No stages, no board. A dealer sees and manages only their own
-trades. They see **This Month's Incentive** (current calendar month)
-and **Your Revenue** for the selected period (Day / week / month).
-They do **not** see Total Brokerage or Company Revenue — those are
-admin-only. There is no weekly incentive or revenue quota.
+**Dealer** uses the **same Lead pipeline as sales** (board, My Leads,
+New Lead, hand off at Joint Meeting) and still has a **Trades** tab
+for their own log: **Client Name, Buying Lot, Brokerage**, plus
+**Account Opened By**. They see **This Month's Incentive** (current
+calendar month) and **Your Revenue** for the selected period (Day /
+week / month). They do **not** see NCA/AUM/SIP/Insurance quotas,
+Total Brokerage, or Company Revenue — those stay admin/sales/RM.
+There is no weekly incentive or revenue quota.
 
 Admins get an extra **Trades** tab showing every dealer's trades, with:
 
@@ -167,9 +166,9 @@ instead of a clipped table.
 
 | Role   | Sees | Can do |
 |--------|------|--------|
-| sales  | own + sourced leads | create leads, hand off to RM from New; own NCA/AUM/SIP/Insurance strip + monthly incentive + Account trading incentive |
-| rm     | all leads (read); owned leads (write) | take handoffs, run Meeting→Closed, win-back list; own progress strip + monthly incentive |
-| dealer | own trades only | log/edit/delete their own trades (delete confirmed); this month's incentive; Your Revenue only |
+| sales  | own + sourced leads | create leads, work New Lead + Meeting, hand off to RM at Joint Meeting; own NCA/AUM/SIP/Insurance strip + monthly incentive + Account trading incentive |
+| rm     | all leads (read); owned leads (write) | take Joint Meeting handoffs, mark Deal Closed, win-back list; own progress strip + monthly incentive |
+| dealer | own + sourced leads; own trades | same pipeline as sales (create, Meeting, hand off at Joint Meeting); log/edit/delete own trades (delete confirmed); this month's incentive; Your Revenue only |
 | admin  | everything | pipeline, Trades, Targets, employee CSV, confirmed deletes (lead / trade / insurance), Account Opened By |
 
 All of this is enforced **server-side**, not just hidden in the UI — the
