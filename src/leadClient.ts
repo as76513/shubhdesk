@@ -35,10 +35,7 @@ async function listAllPages<T>(
   return out;
 }
 
-// Stages owned by sales, mirroring App.tsx. Entering HANDOFF_STAGE
-// from one of these (with an RM chosen) transfers owner.
-const SALES_STAGES = ['new', 'meeting'];
-const HANDOFF_STAGE = 'joint_meeting';
+const JOINT_STAGE = 'joint_meeting';
 
 export type Role = 'admin' | 'rm' | 'sales' | 'dealer';
 
@@ -174,19 +171,28 @@ async function nextClientCode(): Promise<string> {
 export async function createLead(input: {
   client: string;
   phone?: string;
-  email: string;
   requirements?: string;
   service: 'Trading' | 'SIP' | 'Insurance' | 'Loans';
   value?: number;
   source?: 'cold_call' | 'referral' | 'walk_in' | 'existing_client' | 'digital' | 'other';
+  meetingLocation?: string;
+  jointWith?: string;
 }) {
   const me = await getCurrentUser();
   const clientCode = await nextClientCode();
+  const jointWith = input.jointWith?.trim();
+  const meetingLocation = input.meetingLocation?.trim();
   const { data, errors } = await client.models.Lead.create({
-    ...input,
-    email: input.email.trim(),
+    client: input.client,
+    phone: input.phone,
+    requirements: input.requirements,
+    service: input.service,
+    value: input.value,
+    source: input.source,
+    meetingLocation: meetingLocation || undefined,
+    jointWith: jointWith || undefined,
     clientCode,
-    stage: 'new',
+    stage: jointWith ? 'joint_meeting' : 'new',
     owner: me.username,
     sourcedBy: me.username,
   });
@@ -230,26 +236,27 @@ const REJECTION_REASON_LABELS: Record<string, string> = {
 
 /**
  * Move a lead to a new stage.
- * If it's the sales -> RM handoff (entering "joint_meeting" from a
- * sales stage), we also switch `owner` to the chosen RM and write a
- * system log entry — all in the same flow. After this, the salesman
- * loses write access automatically because he's no longer the owner.
+ * Entering Joint Meeting stores `jointWith` + `meetingLocation` and
+ * writes a system note. Owner does not change — this records who the
+ * current owner went on the joint call with.
  *
  * `rejectionReason` is only meaningful when newStage is "rejected".
  */
 export async function moveStage(
   lead: Schema['Lead']['type'],
   newStage: string,
-  rmUsername?: string,
-  rejectionReason?: string
+  opts?: { jointWith?: string; meetingLocation?: string; rejectionReason?: string }
 ) {
   const me = await getCurrentUser();
-  const isHandoff =
-    newStage === HANDOFF_STAGE && SALES_STAGES.includes(lead.stage ?? '') && !!rmUsername;
+  const jointWith = opts?.jointWith?.trim();
+  const meetingLocation = opts?.meetingLocation?.trim();
+  const rejectionReason = opts?.rejectionReason;
+  const isJoint = newStage === JOINT_STAGE && !!jointWith;
 
   const update: Record<string, unknown> = { id: lead.id, stage: newStage };
-  if (isHandoff) {
-    update.owner = rmUsername;
+  if (isJoint) {
+    update.jointWith = jointWith;
+    if (meetingLocation) update.meetingLocation = meetingLocation;
     if (!lead.handoffAt) update.handoffAt = toISODateLocal();
   }
   if (newStage === 'rejected' && rejectionReason) update.rejectionReason = rejectionReason;
@@ -275,13 +282,10 @@ export async function moveStage(
   const nameOf = (username: string) => staff.find((s) => s.username === username)?.displayName ?? username;
   const fromStage = lead.stage ?? '(none)';
   const reasonLabel = rejectionReason ? REJECTION_REASON_LABELS[rejectionReason] : undefined;
-  await addNote(
-    lead.id,
-    isHandoff
-      ? `Handed off to ${nameOf(rmUsername!)} by ${nameOf(me.username)} (${fromStage} → ${newStage})`
-      : `Moved from ${fromStage} to ${newStage}${reasonLabel ? ` (Reason: ${reasonLabel})` : ''}`,
-    'system'
-  );
+  const jointNote = isJoint
+    ? `Joint meeting with ${nameOf(jointWith!)}${meetingLocation ? ` at ${meetingLocation}` : ''} by ${nameOf(me.username)} (${fromStage} → ${newStage})`
+    : `Moved from ${fromStage} to ${newStage}${reasonLabel ? ` (Reason: ${reasonLabel})` : ''}`;
+  await addNote(lead.id, jointNote, 'system');
 
   return data;
 }

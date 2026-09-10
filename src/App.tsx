@@ -16,7 +16,6 @@ import {
   getMe,
   listLeads,
   listStaff,
-  listRMs,
   ensureOwnStaffProfile,
   createLead as apiCreateLead,
   moveStage as apiMoveStage,
@@ -105,8 +104,7 @@ const LEGACY_STAGES: Record<string, { label: string; color: string }> = {
   rejected: { label: "Deal Rejected", color: "#DC2626" },
 };
 const SERVICES = ["Trading", "SIP", "Insurance", "Loans"] as const;
-const SALES_STAGES = ["new", "meeting"];
-const HANDOFF_STAGE = "joint_meeting";
+const JOINT_STAGE = "joint_meeting";
 
 const SOURCES = [
   { id: "cold_call", label: "Cold Call" },
@@ -165,7 +163,7 @@ export default function App() {
   const [me, setMe] = useState<{ username: string; displayName: string; role: Role } | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
-  const [rms, setRms] = useState<Staff[]>([]);
+  const [jointPrompt, setJointPrompt] = useState<Lead | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
   const [companyTargets, setCompanyTargets] = useState<CompanyTarget[]>([]);
@@ -178,7 +176,6 @@ export default function App() {
   const [viewCadence, setViewCadence] = useState<PeriodType>("monthly");
   const [selected, setSelected] = useState<Lead | null>(null);
   const [filterService, setFilterService] = useState("All");
-  const [handoffPrompt, setHandoffPrompt] = useState<{ lead: Lead; targetStage: string } | null>(null);
   const [rejectPrompt, setRejectPrompt] = useState<{ lead: Lead } | null>(null);
   const [deletePrompt, setDeletePrompt] = useState<Lead | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -232,21 +229,18 @@ export default function App() {
         setMe(meInfo);
         await ensureOwnStaffProfile(meInfo.role);
         if (meInfo.role === "dealer") {
-          const [ls, st, rmList, tr] = await Promise.all([
+          const [ls, st, tr] = await Promise.all([
             listLeads(),
             listStaff(),
-            listRMs(),
             listTrades(),
           ]);
           setLeads(ls);
           setStaff(st);
-          setRms(rmList);
           setTrades(tr);
         } else {
-          const [ls, st, rmList, tg, ct, ir, tr] = await Promise.all([
+          const [ls, st, tg, ct, ir, tr] = await Promise.all([
             listLeads(),
             listStaff(),
-            listRMs(),
             listTargets(),
             listCompanyTargets(),
             listInsuranceRevenue(),
@@ -254,7 +248,6 @@ export default function App() {
           ]);
           setLeads(ls);
           setStaff(st);
-          setRms(rmList);
           setTargets(tg);
           setCompanyTargets(ct);
           setInsuranceRevenue(ir);
@@ -373,13 +366,12 @@ export default function App() {
     return lead.owner === me.username;
   }
 
-  // Move a lead to a stage, routing through the RM-handoff prompt when
-  // entering Joint Meeting from a sales stage. Shared by the drawer's
-  // buttons and the board's drag-and-drop.
+  // Move a lead to a stage. Joint Meeting asks who they went with and
+  // where. Shared by the drawer's stage buttons and the board's drag-and-drop.
   function requestMove(lead: Lead, targetStage: string) {
     if (!canEdit(lead) || targetStage === lead.stage) return;
-    if (targetStage === HANDOFF_STAGE && SALES_STAGES.includes(lead.stage ?? "")) {
-      setHandoffPrompt({ lead, targetStage });
+    if (targetStage === JOINT_STAGE) {
+      setJointPrompt(lead);
       return;
     }
     if (targetStage === "rejected") {
@@ -389,25 +381,35 @@ export default function App() {
     handleMove(lead, targetStage);
   }
 
-  function confirmHandoff(rmUsername: string) {
-    if (!handoffPrompt) return;
-    handleMove(handoffPrompt.lead, handoffPrompt.targetStage, rmUsername);
-    setHandoffPrompt(null);
+  function confirmJoint(jointWith: string, meetingLocation: string) {
+    if (!jointPrompt) return;
+    handleMove(jointPrompt, JOINT_STAGE, { jointWith, meetingLocation });
+    setJointPrompt(null);
   }
 
   function confirmReject(reason: string) {
     if (!rejectPrompt) return;
-    handleMove(rejectPrompt.lead, "rejected", undefined, reason);
+    handleMove(rejectPrompt.lead, "rejected", { rejectionReason: reason });
     setRejectPrompt(null);
   }
 
   // ---- actions (optimistic where safe, then refetch) ----
-  async function handleMove(lead: Lead, newStage: string, rmUsername?: string, rejectionReason?: string) {
+  async function handleMove(
+    lead: Lead,
+    newStage: string,
+    opts?: { jointWith?: string; meetingLocation?: string; rejectionReason?: string }
+  ) {
     try {
-      await apiMoveStage(lead, newStage, rmUsername, rejectionReason);
+      await apiMoveStage(lead, newStage, opts);
       await refresh();
       setSelected((s) => (s && s.id === lead.id
-        ? { ...s, stage: newStage as Lead["stage"], owner: rmUsername ?? s.owner, rejectionReason: (rejectionReason as Lead["rejectionReason"]) ?? s.rejectionReason }
+        ? {
+            ...s,
+            stage: newStage as Lead["stage"],
+            jointWith: opts?.jointWith ?? s.jointWith,
+            meetingLocation: opts?.meetingLocation ?? s.meetingLocation,
+            rejectionReason: (opts?.rejectionReason as Lead["rejectionReason"]) ?? s.rejectionReason,
+          }
         : s));
     } catch (e) {
       setError(friendlyError(e, "Couldn't update the stage. Please try again."));
@@ -650,7 +652,9 @@ export default function App() {
                 insurance={insuranceRevenue}
               />
             )}
-            {view !== "trades" && view !== "targets" && <NewLeadButton onCreate={handleCreate} />}
+            {view !== "trades" && view !== "targets" && (
+              <NewLeadButton onCreate={handleCreate} staff={staff} meUsername={me?.username} />
+            )}
           </div>
         </div>
 
@@ -701,23 +705,13 @@ export default function App() {
         />
       )}
 
-      {handoffPrompt && (
-        <div style={S.overlay} onClick={() => setHandoffPrompt(null)}>
-          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
-            <div style={S.drawerName}>Hand off to RM</div>
-            <div style={S.hint}>Pick the Relationship Manager who will join the joint meeting. Ownership transfers to them.</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-              {rms.length === 0 && <div style={S.empty}>No RMs found. Add RM staff profiles first.</div>}
-              {rms.map((rm) => (
-                <button key={rm.username} className="ghost" style={{ textAlign: "left" }}
-                  onClick={() => confirmHandoff(rm.username)}>
-                  {rm.displayName}
-                </button>
-              ))}
-            </div>
-            <button className="ghost" style={{ marginTop: 12 }} onClick={() => setHandoffPrompt(null)}>Cancel</button>
-          </div>
-        </div>
+      {jointPrompt && (
+        <JointMeetingPrompt
+          staff={staff}
+          meUsername={me?.username}
+          onConfirm={confirmJoint}
+          onCancel={() => setJointPrompt(null)}
+        />
       )}
 
       {rejectPrompt && (
@@ -1177,9 +1171,19 @@ function LeadCardVisual({ lead, nameOf, draggable, dragging }: {
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, marginLeft: 6 }}>
           {lead.stage === "rejected" && lead.rejectionReason
             ? reasonOf(lead.rejectionReason)
-            : nameOf(lead.owner).split(" ")[0]}
+            : lead.stage === "joint_meeting" && lead.jointWith
+              ? nameOf(lead.jointWith)
+              : nameOf(lead.owner).split(" ")[0]}
         </span>
       </div>
+      {(lead.meetingLocation || (lead.stage === "joint_meeting" && lead.jointWith)) && (
+        <div style={S.cardJoint}>
+          {lead.stage === "joint_meeting" && lead.jointWith && (
+            <div>With {nameOf(lead.jointWith)}</div>
+          )}
+          {lead.meetingLocation && <div>{lead.meetingLocation}</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -1301,8 +1305,9 @@ function LeadDrawer({
         <div style={S.drawerSection}>
           <div style={S.sectionLabel}>Client Details</div>
           <div style={S.detailRow}><span style={S.detailKey}>Phone</span><span>{lead.phone || "—"}</span></div>
-          <div style={S.detailRow}><span style={S.detailKey}>Email</span><span>{lead.email || "—"}</span></div>
           <div style={S.detailRow}><span style={S.detailKey}>Source</span><span>{sourceOf(lead.source) || "—"}</span></div>
+          <div style={S.detailRow}><span style={S.detailKey}>Location</span><span style={{ textAlign: "right", maxWidth: 260 }}>{lead.meetingLocation || "—"}</span></div>
+          <div style={S.detailRow}><span style={S.detailKey}>Joint with</span><span>{lead.jointWith ? nameOf(lead.jointWith) : "—"}</span></div>
           <div style={S.detailRow}><span style={S.detailKey}>Wants</span><span style={{ textAlign: "right", maxWidth: 260 }}>{lead.requirements || "—"}</span></div>
         </div>
 
@@ -1343,7 +1348,7 @@ function LeadDrawer({
                 ✕ Client Rejected
               </button>
             </div>
-            <div style={S.hint}>Meeting stays with sales. Joint Meeting later hands the lead to an RM. Rejecting records a lost lead — you can still set a win-back follow-up date.</div>
+            <div style={S.hint}>Or pick any stage below. Rejecting records a lost lead — you can still set a win-back follow-up date.</div>
           </div>
         )}
 
@@ -1358,7 +1363,7 @@ function LeadDrawer({
                 ✕ Client Rejected
               </button>
             </div>
-            <div style={S.hint}>Proceeding hands the lead to an RM for the joint meeting.</div>
+            <div style={S.hint}>You'll pick who you went with and the location. Or choose any stage below.</div>
           </div>
         )}
 
@@ -1389,13 +1394,11 @@ function LeadDrawer({
                     color: s.id === lead.stage ? s.color : "#374151",
                   }}
                   onClick={() => handleStageClick(s.id)}>
-                  {s.label}{s.id === HANDOFF_STAGE && SALES_STAGES.includes(lead.stage ?? "") && " →RM"}
+                  {s.label}
                 </button>
               ))}
             </div>
-            {SALES_STAGES.includes(lead.stage ?? "") && (
-              <div style={S.hint}>Moving to "Joint Meeting" hands the lead to an RM.</div>
-            )}
+            <div style={S.hint}>Meeting, Joint Meeting, and Deal Closed stay available here — same as the board.</div>
             {lead.stage !== "new" && lead.stage !== "meeting" && lead.stage !== "joint_meeting" && lead.stage !== "rejected" && (
               <button
                 className="ghost"
@@ -1445,8 +1448,6 @@ function LeadDrawer({
     </div>
   );
 }
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
@@ -2201,25 +2202,102 @@ function ReportButton({
   );
 }
 
-function NewLeadButton({ onCreate }: { onCreate: (input: any) => Promise<boolean> }) {
+function colleaguesOf(staff: Staff[], meUsername?: string) {
+  return staff.filter((s) => s.username && s.username !== meUsername);
+}
+
+function JointMeetingPrompt({
+  staff,
+  meUsername,
+  onConfirm,
+  onCancel,
+}: {
+  staff: Staff[];
+  meUsername?: string;
+  onConfirm: (jointWith: string, meetingLocation: string) => void;
+  onCancel: () => void;
+}) {
+  const [jointWith, setJointWith] = useState("");
+  const [location, setLocation] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const others = colleaguesOf(staff, meUsername);
+
+  function submit() {
+    if (!location.trim()) { setErr("Location is required."); return; }
+    if (!jointWith) { setErr("Pick who you went on the joint call with."); return; }
+    onConfirm(jointWith, location.trim());
+  }
+
+  return (
+    <div style={S.overlay} onClick={onCancel}>
+      <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={S.drawerName}>Joint Meeting</div>
+        <div style={S.hint}>Who did you go on the joint call with, and where? The lead stays yours.</div>
+        <Field label="Location" required>
+          <textarea
+            className="ninput"
+            placeholder="e.g. Client office, Pune"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            style={{ minHeight: 60, resize: "vertical", fontFamily: "inherit" }}
+          />
+        </Field>
+        <Field label="Joint Meeting" required>
+          <select className="sel" value={jointWith} onChange={(e) => setJointWith(e.target.value)} style={{ width: "100%" }}>
+            <option value="">— Select colleague —</option>
+            {others.map((s) => (
+              <option key={s.username} value={s.username}>{s.displayName}</option>
+            ))}
+          </select>
+        </Field>
+        {others.length === 0 && <div style={S.empty}>No other staff found. Ask an admin to add profiles.</div>}
+        {err && <div style={S.formError}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button className="primary" onClick={submit} style={{ flex: 1 }}>Save & move</button>
+          <button className="ghost" onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewLeadButton({
+  onCreate,
+  staff,
+  meUsername,
+}: {
+  onCreate: (input: any) => Promise<boolean>;
+  staff: Staff[];
+  meUsername?: string;
+}) {
+  const empty = { client: "", phone: "", requirements: "", service: "SIP", value: "", source: "cold_call", meetingLocation: "", jointWith: "" };
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [form, setForm] = useState({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "", source: "cold_call" });
+  const [form, setForm] = useState(empty);
+  const others = colleaguesOf(staff, meUsername);
 
   async function submit() {
     const client = form.client.trim();
-    const email = form.email.trim();
+    const meetingLocation = form.meetingLocation.trim();
     if (!client) { setFormError("Client name is required."); return; }
-    if (!email) { setFormError("Email is required."); return; }
-    if (!EMAIL_RE.test(email)) { setFormError("Please enter a valid email address (e.g. name@example.com)."); return; }
+    if (form.jointWith && !meetingLocation) { setFormError("Location is required for a joint meeting."); return; }
 
     setFormError(null);
     setSaving(true);
-    const ok = await onCreate({ ...form, client, email, value: Number(form.value) || 0 });
+    const ok = await onCreate({
+      client,
+      phone: form.phone,
+      requirements: form.requirements,
+      service: form.service,
+      source: form.source,
+      value: Number(form.value) || 0,
+      meetingLocation,
+      jointWith: form.jointWith || undefined,
+    });
     setSaving(false);
     if (ok) {
-      setForm({ client: "", phone: "", email: "", requirements: "", service: "SIP", value: "", source: "cold_call" });
+      setForm(empty);
       setOpen(false);
     }
   }
@@ -2231,15 +2309,23 @@ function NewLeadButton({ onCreate }: { onCreate: (input: any) => Promise<boolean
         <div style={S.overlay} onClick={() => setOpen(false)}>
           <div style={S.modal} onClick={(e) => e.stopPropagation()}>
             <div style={S.drawerName}>New Lead</div>
-            <div style={S.hint}>A client code (SSKH-YYMM-NNN) is assigned automatically. Fields marked <span style={S.req}>*</span> are required.</div>
+            <div style={S.hint}>A client code (SSKH-YYMM-NNN) is assigned automatically. Fields marked <span style={S.req}>*</span> are required. Pick a Joint Meeting colleague to place the card in Joint Meeting.</div>
             <Field label="Client name" required>
               <input className="ninput" placeholder="e.g. Rohan Mehta" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
             </Field>
             <Field label="Phone">
               <input className="ninput" placeholder="e.g. 9876543210" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </Field>
-            <Field label="Email" required>
-              <input className="ninput" placeholder="e.g. name@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <Field label="Location">
+              <textarea className="ninput" placeholder="Where will you / did you meet?" value={form.meetingLocation} onChange={(e) => setForm({ ...form, meetingLocation: e.target.value })} style={{ minHeight: 60, resize: "vertical", fontFamily: "inherit" }} />
+            </Field>
+            <Field label="Joint Meeting">
+              <select className="sel" value={form.jointWith} onChange={(e) => setForm({ ...form, jointWith: e.target.value })} style={{ width: "100%" }}>
+                <option value="">— None (New Lead) —</option>
+                {others.map((s) => (
+                  <option key={s.username} value={s.username}>{s.displayName}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Requirements">
               <textarea className="ninput" placeholder="What the client wants" value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} style={{ minHeight: 60, resize: "vertical", fontFamily: "inherit" }} />
@@ -2315,6 +2401,7 @@ const S: Record<string, React.CSSProperties> = {
   serviceTag: { fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: RADIUS.sm, whiteSpace: "nowrap" },
   cardValue: { fontSize: 13, fontWeight: 700, color: "#07163F", letterSpacing: "-.1px", whiteSpace: "nowrap", flexShrink: 0 },
   cardMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10.5, color: "#6B7280", marginTop: 5 },
+  cardJoint: { fontSize: 11, color: "#0F766E", marginTop: 6, lineHeight: 1.35, fontWeight: 600 },
   empty: { fontSize: 12, color: "#9CA3AF", textAlign: "center", padding: "16px 12px", border: "1px dashed #E5E7EB", borderRadius: RADIUS.sm },
   list: { background: "#fff", borderRadius: RADIUS.lg, overflow: "hidden", boxShadow: SHADOW.sm, border: "1px solid #EEF0F3" },
   listRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: "1px solid #F3F4F6", cursor: "pointer", transition: "background .12s ease", minWidth: 0 },

@@ -198,10 +198,10 @@ in `DEPLOY.md`.
 
 ## Validation & error handling
 
-- **Client name** and **Email** are required on new leads (marked with
-  a red `*`), checked before the form ever hits the server — an invalid
-  or missing email gets a plain-language message immediately instead of
-  a generic failure.
+- **Client name** is required on new leads (marked with a red `*`).
+  Email is not collected. Location and an optional **Joint Meeting**
+  colleague (everyone except you) can be set on create; picking a
+  colleague places the card in Joint Meeting.
 - Every action that can fail (create, move, note, follow-up) shows a
   **plain-language explanation** of what went wrong, with the raw
   technical detail appended so it can be copy-pasted and shared with

@@ -17,12 +17,10 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
  *   - `owner`     = who currently controls the lead (auto-managed).
  *   - `sourcedBy` = the salesman who first created it (never changes).
  *
- * When a lead moves to the "joint_meeting" stage from a sales-owned
- * stage (`new` or `meeting`), the app sets `owner` to the chosen RM.
- * From that moment the salesman is no longer the owner, so his write
- * access falls away automatically — but because we ALSO allow the
- * original `sourcedBy` user to READ, he keeps his read-only
- * visibility. Exactly the behaviour from the prototype.
+ * Joint Meeting records who the owner went on the call with
+ * (`jointWith`) and where (`meetingLocation`). Owner does not change.
+ * `sourcedBy` still preserves read-only visibility if ownership is
+ * later reassigned.
  */
 
 const schema = a.schema({
@@ -32,8 +30,11 @@ const schema = a.schema({
       clientCode: a.string(),        // human reference, e.g. SSKH-2608-042
       client: a.string().required(), // client name
       phone: a.string(),
-      email: a.email().required(),
+      email: a.email(),              // optional; not collected on New Lead
       requirements: a.string(),      // what the client wants (demands/notes)
+      meetingLocation: a.string(),   // where the meeting / joint call happened
+      // Colleague on the joint call (Cognito username). Not the owner.
+      jointWith: a.string(),
 
       // --- Pipeline ---
       service: a.enum(['Trading', 'SIP', 'Insurance', 'Loans']),
