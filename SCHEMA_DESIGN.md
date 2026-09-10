@@ -16,7 +16,7 @@ The trade-off: DynamoDB doesn't do ad-hoc joins or arbitrary `WHERE` filtering e
 
 ## One table per model, not one table per record
 
-Amplify Data maps each `a.model()` to its own DynamoDB table. Eight models → eight tables (times two, once per deployed environment — sandbox and production each get their own full set):
+Amplify Data maps each `a.model()` to its own DynamoDB table. Nine models → nine tables (times two, once per deployed environment — sandbox and production each get their own full set):
 
 | Model | Table role | Partition key |
 |---|---|---|
@@ -28,6 +28,7 @@ Amplify Data maps each `a.model()` to its own DynamoDB table. Eight models → e
 | `CompanyTarget` | one quota row per cadence; applied as each sales/RM's individual target | `periodType` (`monthly` / `quarterly` / `yearly`) |
 | `Target` | one weekly target per employee (legacy, employee strip) | `username` + `weekStart` (composite, via `.identifier`) |
 | `InsuranceRevenue` | one admin-entered insurance company-revenue row | `id` (auto UUID) |
+| `FinanceEntry` | admin-entered AUM / company revenue / incentive | `id` (auto UUID); `kind` = `aum` / `revenue` / `incentive` |
 
 Every lead ever created lives as a separate **item** inside the single `Lead` table — the table doesn't grow in count, the item count inside it does.
 
@@ -73,6 +74,7 @@ Every read the app does, and whether it's an efficient indexed `Query` or a `Sca
 | `listTargets()` (`src/targetClient.ts`) | weekly targets the caller may see (own row for employees; all for admin) | Scan; paginated |
 | `listCompanyTargets()` (`src/targetClient.ts`) | the three cadence quota rows (monthly / quarterly / yearly) | Scan (3 rows); paginated |
 | `listInsuranceRevenue()` (`src/targetClient.ts`) | admin-entered insurance company revenue (own rows for employees; all for admin) | Scan; paginated |
+| `listFinanceEntries()` (`src/targetClient.ts`) | admin-entered AUM / revenue / incentive (own rows for employees; all for admin) | Scan; paginated |
 
 The two scan-and-filter patterns (`followUpOn`, `role`) are fine today: `StaffProfile` will only ever hold a handful of rows (team size), and `Lead` volume for a ~10-person team's pipeline is small. If lead volume ever grows into the thousands, the fix is a **GSI** on `followUpOn` (and possibly `stage`) so `listFollowUpsDue` becomes an indexed query instead of a full scan — not a schema rewrite, just an added index.
 

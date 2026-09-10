@@ -113,14 +113,13 @@ dormant one — can get a `followUpOn` date. The "Follow-ups Due" tab
 (admin/RM only) lists everything due today or earlier, for reconnecting
 with clients who didn't convert the first time.
 
-**Top stat bar**: Total Leads, Active, Closed Won, and Pipeline Value
-for everyone. Admin gets a 5th card, **Total Brokerage (Mon YYYY)** —
-all trades in the current **calendar month** (not today). Below that,
-admin sees one **Company targets** strip (see [How numbers are
-calculated](#how-numbers-are-calculated)). Sales/RM see their own
-progress strip (monthly by default, with quarter/year radios). Admin
-can **delete a lead** from the drawer (notes first, then the lead)
-after a confirmation that shows client code + name.
+**Top stat bar**: Total Leads, Active, Closed Won, and **Revenue**
+(admin-entered company revenue for the current calendar month —
+everyone sees their own amount; admin sees the company total). Admin
+gets a 5th card, **Total Brokerage (Mon YYYY)**. Below that, admin
+sees one **Company targets** strip. Sales/RM/**dealer** see their own
+progress strip (monthly by default). Admin can **delete a lead** from
+the drawer after confirmation.
 
 ---
 
@@ -129,11 +128,11 @@ after a confirmation that shows client code + name.
 **Dealer** uses the **same Lead pipeline as sales** (board, My Leads,
 New Lead, hand off at Joint Meeting) and still has a **Trades** tab
 for their own log: **Client Name, Buying Lot, Brokerage**, plus
-**Account Opened By**. They see **This Month's Incentive** (current
-calendar month) and **Your Revenue** for the selected period (Day /
-week / month). They do **not** see NCA/AUM/SIP/Insurance quotas,
-Total Brokerage, or Company Revenue — those stay admin/sales/RM.
-There is no weekly incentive or revenue quota.
+**Account Opened By**. They see the same **monthly progress** strip as
+sales (NCA / AUM / SIP / Insurance) plus **This Month's Incentive**
+(admin-entered, not calculated from trades). Trades still show **Your
+Revenue** for the selected period. They do **not** see Total
+Brokerage.
 
 Admins get an extra **Trades** tab showing every dealer's trades, with:
 
@@ -166,9 +165,9 @@ instead of a clipped table.
 
 | Role   | Sees | Can do |
 |--------|------|--------|
-| sales  | own + sourced leads | create leads, work New Lead + Meeting, hand off to RM at Joint Meeting; own NCA/AUM/SIP/Insurance strip + monthly incentive + Account trading incentive |
+| sales  | own + sourced leads | create leads, work New Lead + Meeting, hand off to RM at Joint Meeting; own NCA/AUM/SIP/Insurance strip + admin-entered monthly incentive |
 | rm     | all leads (read); owned leads (write) | take Joint Meeting handoffs, mark Deal Closed, win-back list; own progress strip + monthly incentive |
-| dealer | own + sourced leads; own trades | same pipeline as sales (create, Meeting, hand off at Joint Meeting); log/edit/delete own trades (delete confirmed); this month's incentive; Your Revenue only |
+| dealer | own + sourced leads; own trades | same pipeline and month progress bar as sales; log/edit/delete own trades; admin-entered incentive; Your Revenue on Trades |
 | admin  | everything | pipeline, Trades, Targets, employee CSV, confirmed deletes (lead / trade / insurance), Account Opened By |
 
 All of this is enforced **server-side**, not just hidden in the UI — the
@@ -295,8 +294,9 @@ Company goal = that quota × count of sales+RM profiles.
 
 ### AUM
 
-Sum of `Lead.value` on **closed Trading** leads in the period.
-Same owner/sourcedBy vs company-once rules as NCA.
+Sum of admin-entered **AUM Tracking** rows (`FinanceEntry` kind
+`aum`: date, employee, amount) in the period. Not taken from closed
+Trading lead value.
 
 ### SIP
 
@@ -338,15 +338,14 @@ No revenue formula yet. Closed Loans still count toward **NCA**
 
 ### Incentive (monthly)
 
-Shown on sales/RM and dealer login as **This Month's Incentive**.
-Uses the calendar month being viewed (not a week). Formula
-(`incentiveFor`): dealer cut from their trades in that month (with
-the opened-by rule) + **Account trading incentive** (same halved
-dealer cut, for trades where they are Account Opened By) + insurance
-salesperson 50% for rows dated that month. Sales/RM see the account-
-trading amount as its own line under the total. The employee CSV
-**Incentive Earned** column uses the same function for whichever
-report period is chosen.
+Admin enters **Employee + incentive amount + date** on the Targets
+tab (below Revenue). Shown on sales/RM/dealer as **This Month's
+Incentive**. There is no calculated dealer-trade incentive. The
+employee CSV **Incentive Earned** column sums those admin rows for
+the report period.
+
+Admin also enters **Revenue** (company ₹, employee, date) on Targets
+— that total replaces the old Pipeline Value card.
 
 ---
 

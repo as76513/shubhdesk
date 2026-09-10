@@ -123,3 +123,40 @@ export async function deleteInsuranceRevenue(id: string) {
   if (errors) throw errors;
   return data;
 }
+
+export async function listFinanceEntries() {
+  return listAllPages((nextToken) =>
+    client.models.FinanceEntry.list({ limit: 1000, nextToken })
+  );
+}
+
+export async function createFinanceEntry(input: {
+  kind: 'aum' | 'revenue' | 'incentive';
+  username: string;
+  amount: number;
+  earnedOn: string;
+  note?: string;
+}) {
+  const { data, errors } = await client.models.FinanceEntry.create(input);
+  if (errors) throw errors;
+  return data;
+}
+
+export async function updateFinanceEntry(input: {
+  id: string;
+  kind?: 'aum' | 'revenue' | 'incentive';
+  username?: string;
+  amount?: number;
+  earnedOn?: string;
+  note?: string | null;
+}) {
+  const { data, errors } = await client.models.FinanceEntry.update(input);
+  if (errors) throw errors;
+  return data;
+}
+
+export async function deleteFinanceEntry(id: string) {
+  const { data, errors } = await client.models.FinanceEntry.delete({ id });
+  if (errors) throw errors;
+  return data;
+}

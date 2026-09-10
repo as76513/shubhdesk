@@ -218,6 +218,22 @@ const schema = a.schema({
       allow.ownerDefinedIn('username').to(['read']),
     ]),
 
+  // Admin-entered AUM / company revenue / incentive. Replaces calculated
+  // dealer incentive and lead-value AUM on progress strips. Employees
+  // can read their own rows (username) so their month bar can show them.
+  FinanceEntry: a
+    .model({
+      kind: a.enum(['aum', 'revenue', 'incentive']),
+      username: a.string().required(),
+      amount: a.integer().required(),
+      earnedOn: a.date().required(),
+      note: a.string(),
+    })
+    .authorization((allow) => [
+      allow.group('admin'),
+      allow.ownerDefinedIn('username').to(['read']),
+    ]),
+
   Note: a
     .model({
       leadId: a.id().required(),

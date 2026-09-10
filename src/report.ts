@@ -2,7 +2,7 @@ import type { Schema } from "../amplify/data/resource";
 import {
   closedLeadCountFor,
   companyRevenueFor,
-  incentiveFor,
+  financeSum,
   pctOf,
   sumTargetsInPeriod,
   tradingSplit,
@@ -14,6 +14,7 @@ type Staff = Schema["StaffProfile"]["type"];
 type Trade = Schema["Trade"]["type"];
 type Target = Schema["Target"]["type"];
 type InsuranceRevenue = Schema["InsuranceRevenue"]["type"];
+type FinanceEntry = Schema["FinanceEntry"]["type"];
 
 export type ReportPeriod = "thisWeek" | "thisMonth" | "lastMonth";
 
@@ -75,7 +76,7 @@ export function buildEmployeeReport(
   leads: Lead[],
   staff: Staff[],
   period: ReportPeriod,
-  extras?: { targets?: Target[]; trades?: Trade[]; insurance?: InsuranceRevenue[] }
+  extras?: { targets?: Target[]; trades?: Trade[]; insurance?: InsuranceRevenue[]; finance?: FinanceEntry[] }
 ): { rows: EmployeeReportRow[]; range: { start: string; end: string; label: string } } {
   const range = periodRange(period);
   const dateOf = (s?: string | null) => (s ? s.slice(0, 10) : "");
@@ -88,6 +89,7 @@ export function buildEmployeeReport(
   const targets = extras?.targets ?? [];
   const trades = extras?.trades ?? [];
   const insurance = extras?.insurance ?? [];
+  const finance = extras?.finance ?? [];
 
   const usernames = new Set<string>();
   staff.forEach((s) => { if (s.username) usernames.add(s.username); });
@@ -130,7 +132,7 @@ export function buildEmployeeReport(
       const revenueTarget = summed.weeksSet > 0 ? summed.revenueTarget : null;
       const closedActual = closedLeadCountFor(username, leads, range);
       const revenueActual = companyRevenueFor(username, range, trades, insurance);
-      const incentiveEarned = incentiveFor(username, range, trades, insurance);
+      const incentiveEarned = financeSum(finance, "incentive", range, username);
 
       return {
         username,

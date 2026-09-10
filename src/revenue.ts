@@ -3,6 +3,26 @@ import type { Schema } from "../amplify/data/resource";
 type Lead = Schema["Lead"]["type"];
 type Trade = Schema["Trade"]["type"];
 type InsuranceRevenue = Schema["InsuranceRevenue"]["type"];
+type FinanceEntry = Schema["FinanceEntry"]["type"];
+
+export type FinanceKind = "aum" | "revenue" | "incentive";
+
+/** Sum of admin-entered finance rows for a kind (and optional employee) in range. */
+export function financeSum(
+  entries: FinanceEntry[],
+  kind: FinanceKind,
+  range: { start: string; end: string },
+  username?: string
+): number {
+  return entries
+    .filter(
+      (e) =>
+        e.kind === kind &&
+        inDateRange(e.earnedOn, range.start, range.end) &&
+        (!username || e.username === username)
+    )
+    .reduce((s, e) => s + (e.amount ?? 0), 0);
+}
 type Target = Schema["Target"]["type"];
 type CompanyTarget = Schema["CompanyTarget"]["type"];
 
@@ -306,20 +326,21 @@ export interface CompanyActuals {
 
 /**
  * Actuals for a date range. NCA = closed leads (any service).
- * AUM = closed Trading deal value. SIP = closed SIP deal value.
+ * AUM = admin-entered FinanceEntry kind=aum. SIP = closed SIP deal value.
  * Insurance = admin-entered company revenue.
  */
 export function companyActualsFor(
   leads: Lead[],
   insurance: InsuranceRevenue[],
-  range: { start: string; end: string }
+  range: { start: string; end: string },
+  finance: FinanceEntry[] = []
 ): CompanyActuals {
   const closed = leads.filter(
     (l) => l.stage === "closed" && inDateRange(closedOn(l), range.start, range.end)
   );
   return {
     nca: closed.length,
-    aum: closed.filter((l) => l.service === "Trading").reduce((s, l) => s + (l.value ?? 0), 0),
+    aum: financeSum(finance, "aum", range),
     sip: closed.filter((l) => l.service === "SIP").reduce((s, l) => s + (l.value ?? 0), 0),
     insurance: insurance
       .filter((r) => inDateRange(r.earnedOn, range.start, range.end))
@@ -330,18 +351,20 @@ export function companyActualsFor(
 /**
  * One person's actuals against the shared individual quota.
  * Closed-lead credit matches `closedLeadCountFor` (owner or sourcedBy).
- * Insurance is only the rows admin attributed to this username.
+ * Insurance / AUM are only the rows admin attributed to this username.
  */
 export function personActualsFor(
   username: string,
   leads: Lead[],
   insurance: InsuranceRevenue[],
-  range: { start: string; end: string }
+  range: { start: string; end: string },
+  finance: FinanceEntry[] = []
 ): CompanyActuals {
   return companyActualsFor(
     leads.filter((l) => l.owner === username || l.sourcedBy === username),
     insurance.filter((r) => r.username === username),
-    range
+    range,
+    finance.filter((e) => e.username === username)
   );
 }
 
