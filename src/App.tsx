@@ -49,7 +49,6 @@ import {
 import {
   pctOf,
   progressColor,
-  tradingSplit,
   openedByOther,
   accountOpenedBySelectValue,
   ACCOUNT_OPENED_OWN,
@@ -74,10 +73,7 @@ import {
   type CompanyActuals,
   type MetricTargets,
   tradePeriodRange,
-  sumBrokerage,
   inDateRange,
-  toISODateLocal,
-  formatMonthLabel,
   type TradePeriod,
 } from "./revenue";
 import type { Schema } from "../amplify/data/resource";
@@ -305,15 +301,6 @@ export default function App() {
       closed: closed.length,
     };
   }, [visibleLeads]);
-
-  // Month-to-date brokerage. Only shown for admin. Sales/RM load trades
-  // they opened (for Account trading incentive) but must not see company totals.
-  const monthBrokerage = useMemo(() => {
-    const { start, end } = monthBounds();
-    return trades
-      .filter((t) => inDateRange(t.createdAt, start, end))
-      .reduce((s, t) => s + (t.brokerage ?? 0), 0);
-  }, [trades]);
 
   const viewMonthRange = useMemo(
     () => monthBounds(parseISODate(viewMonth)),
@@ -647,7 +634,7 @@ export default function App() {
           </div>
         )}
 
-        <StatBar stats={stats} revenue={monthRevenue} totalBrokerage={me?.role === "admin" ? monthBrokerage : undefined} />
+        <StatBar stats={stats} revenue={monthRevenue} />
         {me?.role === "admin" ? (
           view !== "trades" && view !== "targets" ? (
             <>
@@ -844,15 +831,12 @@ function Header({ me }: { me: { displayName: string; role: Role } | null }) {
   );
 }
 
-function StatBar({ stats, revenue, totalBrokerage }: { stats: any; revenue?: number; totalBrokerage?: number }) {
+function StatBar({ stats, revenue }: { stats: any; revenue?: number }) {
   const items = [
     { label: "Total Leads", value: stats.total },
     { label: "Active", value: stats.active },
     { label: "Closed Won", value: stats.closed },
     { label: "Revenue", value: rupee(revenue ?? 0) },
-    ...(totalBrokerage != null
-      ? [{ label: `Total Brokerage (${formatMonthLabel(toISODateLocal())})`, value: rupee(totalBrokerage) }]
-      : []),
   ];
   return (
     <div className="statBar" style={S.statBar}>
@@ -1634,25 +1618,6 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
     downloadCSV(`shubhdesk-trades-${stamp}.csv`, csv);
   }
 
-  const totalBrokerage = sumBrokerage(periodTrades);
-  const companyRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0).company, 0);
-  const dealerEmployeeRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0).dealer, 0);
-  const dealerPayout = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
-  const byDealer = useMemo(() => {
-    const map = new Map<string, { count: number; brokerage: number; payout: number }>();
-    periodTrades.forEach((t) => {
-      const key = t.owner ?? "unknown";
-      const cur = map.get(key) ?? { count: 0, brokerage: 0, payout: 0 };
-      cur.count += 1;
-      cur.brokerage += t.brokerage ?? 0;
-      cur.payout += tradingSplit(t.brokerage ?? 0, t).dealer;
-      map.set(key, cur);
-    });
-    return Array.from(map.entries())
-      .map(([owner, v]) => ({ owner, ...v }))
-      .sort((a, b) => b.payout - a.payout);
-  }, [periodTrades]);
-
   const PERIODS: { id: TradePeriod; label: string }[] = [
     { id: "day", label: "Day" },
     { id: "thisWeek", label: "This week" },
@@ -1690,60 +1655,11 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
       </div>
 
       <div className="statBar" style={{ ...S.statBar, marginBottom: 16 }}>
-        {isAdmin && (
-          <>
-            <div style={S.statCard}>
-              <div style={S.statValue}>{rupee(totalBrokerage)}</div>
-              <div style={S.statLabel}>Total Brokerage — {range.label}</div>
-            </div>
-            <div style={S.statCard}>
-              <div style={S.statValue}>{rupee(companyRevenue)}</div>
-              <div style={S.statLabel}>Company Revenue (after 20% platform)</div>
-            </div>
-            <div style={S.statCard}>
-              <div style={S.statValue}>{rupee(dealerEmployeeRevenue)}</div>
-              <div style={S.statLabel}>Dealer / Employee Revenue</div>
-            </div>
-          </>
-        )}
-        {!isAdmin && (
-          <div style={S.statCard}>
-            <div style={S.statValue}>{rupee(dealerPayout)}</div>
-            <div style={S.statLabel}>Your Revenue — {range.label}</div>
-          </div>
-        )}
         <div style={S.statCard}>
           <div style={S.statValue}>{periodTrades.length}</div>
           <div style={S.statLabel}>Trades — {range.label}</div>
         </div>
       </div>
-
-      {isAdmin && (
-      <div style={S.drawerSection}>
-        <div style={S.sectionLabel}>Dealer Brokerage — {range.label}</div>
-        <div style={S.hint}>
-          Dealer payout is 30% of company revenue. If Account Opened By is someone else, that payout is multiplied by 0.5.
-          Set Account Opened By on each trade below and save.
-        </div>
-        <div style={S.list}>
-          <div className="dataHead" style={{ ...S.listRow, cursor: "default" }}>
-            <div style={{ ...th, flex: 2 }}>Dealer</div>
-            <div style={{ ...th, flex: 1, textAlign: "right" }}>Trades</div>
-            <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>
-            <div style={{ ...th, flex: 1, textAlign: "right" }}>Dealer ₹</div>
-          </div>
-          {byDealer.map((d) => (
-            <div key={d.owner} className="dataRow" style={{ ...S.listRow, cursor: "default" }}>
-              <DataCell label="Dealer" className="dc-span" style={{ flex: 2, fontWeight: 600 }}>{nameOf(d.owner)}</DataCell>
-              <DataCell label="Trades" className="dc-right" style={{ flex: 1, textAlign: "right" }}>{d.count}</DataCell>
-              <DataCell label="Brokerage" className="dc-right" style={{ flex: 1, textAlign: "right" }}>{rupee(d.brokerage)}</DataCell>
-              <DataCell label="Dealer ₹" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(d.payout)}</DataCell>
-            </div>
-          ))}
-          {byDealer.length === 0 && <div style={S.empty}>No trades logged in this period.</div>}
-        </div>
-      </div>
-      )}
 
       <div style={S.sectionLabel}>All Trades</div>
       <div style={S.list}>
@@ -1753,12 +1669,10 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           <div style={{ ...th, flex: 1.6 }}>Client Name</div>
           <div style={{ ...th, flex: 1.4 }}>Buying Lot</div>
           <div style={{ ...th, flex: 1.8 }}>Account Opened By</div>
-          {isAdmin && <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>}
-          <div style={{ ...th, flex: 1, textAlign: "right" }}>{isAdmin ? "Dealer ₹" : "Your ₹"}</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>
           <div style={{ width: 66 }} />
         </div>
         {tradesNewestFirst.map((t) => {
-          const split = tradingSplit(t.brokerage ?? 0, t);
           return (
             <div key={t.id} className="row dataRow" style={S.listRow}>
               <DataCell label="Date" style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</DataCell>
@@ -1781,16 +1695,12 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
                     ))}
                   </select>
                 ) : (
-                  <span style={{ fontSize: 12, color: openedByOther(t) ? "#B45309" : "#374151" }}>
+                  <span style={{ fontSize: 12, color: "#374151" }}>
                     {openedByOther(t) ? nameOf(t.accountOpenedBy) : "OWN"}
-                    {openedByOther(t) ? " · 50%" : ""}
                   </span>
                 )}
               </DataCell>
-              {isAdmin && (
-                <DataCell label="Brokerage" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</DataCell>
-              )}
-              <DataCell label={isAdmin ? "Dealer ₹" : "Your ₹"} className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, color: openedByOther(t) ? "#B45309" : "#07163F" }}>{rupee(split.dealer)}</DataCell>
+              <DataCell label="Brokerage" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</DataCell>
               <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
                 <button className="ghost sm" onClick={() => setDeleteTrade(t)}>Delete</button>
               </DataCell>
@@ -1887,7 +1797,7 @@ function TradeModal({ trade, employees, isAdmin, nameOf, onClose, onSave }: {
                 <option key={s.username} value={s.username}>{s.displayName} ({s.role})</option>
               ))}
             </select>
-            <div style={S.hint}>OWN = the dealer opened this account (full 30%). Anyone else = dealer payout × 0.5. This is saved on the trade.</div>
+            <div style={S.hint}>OWN = the dealer opened this account. Otherwise pick the sales/RM who opened it.</div>
           </Field>
         ) : (
           <div style={{ ...S.hint, marginTop: 8 }}>

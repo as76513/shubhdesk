@@ -152,16 +152,14 @@ const schema = a.schema({
       buyingLot: a.string(),   // free text: instrument + quantity, dealer's own shorthand
       brokerage: a.integer(),  // brokerage earned on the trade, in rupees
       owner: a.string(),       // the dealer who logged it
-      // Who opened the trading account. Empty / same as owner = dealer
-      // keeps the full 30% of company. Anyone else = dealer payout × 0.5.
+      // Who opened the trading account: OWN or a sales/RM/admin username.
       accountOpenedBy: a.string(),
     })
     .authorization((allow) => [
       allow.group('admin'),
       // A dealer sees and manages only their own trades.
       allow.ownerDefinedIn('owner'),
-      // Sales/RM named as Account Opened By can read those trades so
-      // their login can show Account trading incentive. No writes.
+      // Sales/RM named as Account Opened By can read those trades. No writes.
       allow.ownerDefinedIn('accountOpenedBy').to(['read']),
     ]),
 

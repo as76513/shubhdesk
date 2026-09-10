@@ -116,7 +116,7 @@ with clients who didn't convert the first time.
 **Top stat bar**: Total Leads, Active, Closed Won, and **Revenue**
 (admin-entered company revenue for the current calendar month —
 everyone sees their own amount; admin sees the company total). Admin
-gets a 5th card, **Total Brokerage (Mon YYYY)**. Below that, admin
+Below that, admin
 sees one **Company targets** strip. Sales/RM/**dealer** see their own
 progress strip (monthly by default). Admin can **delete a lead** from
 the drawer after confirmation.
@@ -129,31 +129,19 @@ the drawer after confirmation.
 New Lead, hand off at Joint Meeting) and still has a **Trades** tab
 for their own log: **Client Name, Buying Lot, Brokerage**, plus
 **Account Opened By**. They see the same **monthly progress** strip as
-sales (NCA / AUM / SIP / Insurance) plus **This Month's Incentive**
-(admin-entered, not calculated from trades). Trades still show **Your
-Revenue** for the selected period. They do **not** see Total
-Brokerage.
+sales plus **This Month's Incentive** (admin-entered only). Trades do
+**not** show calculated dealer revenue, brokerage totals, or payouts.
 
 Admins get an extra **Trades** tab showing every dealer's trades, with:
 
-- Period pills: **Day / This week / This month / Last month** (day
-  uses a date picker). Summary cards, Dealer Brokerage, and CSV all
-  follow that range.
-- **Dealer / Employee Revenue** on the totals strip is the **full**
-  30% of company revenue (not reduced for “opened by someone else”).
-- **Dealer Brokerage** per dealer shows brokerage plus **Dealer ₹**
-  (that dealer’s payout, which *is* halved when the account was opened
-  by someone else).
-- **Account Opened By** on each trade (admin dropdown): **OWN** = the
-  dealer opened it (full 30% of company). Any sales/RM/admin = dealer
-  payout × 0.5. Dealers are not in the opener list. Stored on
-  `Trade.accountOpenedBy` as `OWN` or a Cognito username (never omit
-  the field — Amplify skips `null` on update).
+- Period pills: **Day / This week / This month / Last month** (for
+  trade count and CSV). No auto-calculated revenue cards.
+- **Account Opened By** on each trade (admin dropdown): **OWN** or a
+  sales/RM/admin. Dealers are not in the opener list.
 - **All Trades** is sorted by `createdAt`, **newest first**. Deleting a
-  trade asks for confirmation (client name + brokerage).
-- CSV: admin gets Date, Dealer, Client Name, Buying Lot, Account Opened
-  By, Brokerage, Company Revenue, Dealer Revenue. A dealer download
-  omits brokerage and company ₹ — only their payout.
+  trade asks for confirmation.
+- CSV: Date, Dealer, Client Name, Buying Lot, Account Opened By,
+  Brokerage (raw). No company or dealer payout columns.
 
 The UI is **phone-friendly** (≤720px): header wraps, progress +
 incentive stack, and trade/lead/insurance rows become labeled cards
@@ -167,7 +155,7 @@ instead of a clipped table.
 |--------|------|--------|
 | sales  | own + sourced leads | create leads, work New Lead + Meeting, hand off to RM at Joint Meeting; own NCA/AUM/SIP/Insurance strip + admin-entered monthly incentive |
 | rm     | all leads (read); owned leads (write) | take Joint Meeting handoffs, mark Deal Closed, win-back list; own progress strip + monthly incentive |
-| dealer | own + sourced leads; own trades | same pipeline and month progress bar as sales; log/edit/delete own trades; admin-entered incentive; Your Revenue on Trades |
+| dealer | own + sourced leads; own trades | same pipeline and month progress bar as sales; log/edit/delete own trades; admin-entered incentive |
 | admin  | everything | pipeline, Trades, Targets, employee CSV, confirmed deletes (lead / trade / insurance), Account Opened By |
 
 All of this is enforced **server-side**, not just hidden in the UI — the
@@ -225,12 +213,9 @@ This Month / Last Month, per employee: leads sourced, deals closed
   whose Monday falls in the report period (the older per-employee
   weekly goals) — not from the NCA/AUM/SIP/Insurance quotas on the
   Targets tab.
-- **Revenue Actual** = trading **company** ₹ from trades they own
-  (brokerage − 20% platform) + insurance company ₹ attributed to them.
-  **Incentive Earned** = dealer payout on those trades (with the
-  opened-by 50% rule) + **Account trading incentive** (same halved
-  cut, if they are Account Opened By) + 50% of their insurance
-  company ₹.
+- **Revenue Actual** and **Incentive Earned** sum admin-entered
+  `FinanceEntry` rows (`revenue` / `incentive`) for that employee in
+  the report period. Trade brokerage is not split into these columns.
 
 Computed client-side from data already loaded — see `src/report.ts`.
 
@@ -315,21 +300,10 @@ Not taken from `Lead.value`. Admin types **company ₹** on
 
 ### Trading (dealer trades)
 
-From `Trade.brokerage`:
-
-1. **Company** = brokerage − 20% platform fee (`brokerage × 0.8`).
-2. **Dealer payout** = 30% of company (`× 0.3`).
-3. If **Account Opened By** is someone other than OWN / this dealer:
-   that 30% is split **50/50** — the dealer keeps half, the salesman
-   who opened the account gets the other half (**Account trading
-   incentive** on their login).
-
-The top **Dealer / Employee Revenue** card (admin Trades tab) is step 2 **without**
-step 3 (full 30% pool). Per-trade **Dealer ₹** and the Dealer
-Brokerage payout column **do** apply step 3.
-
-Constants: `TRADING_PLATFORM_FEE = 0.2`,
-`DEALER_SHARE_OF_COMPANY = 0.3`, `DEALER_OPENED_ELSEWHERE_CUT = 0.5`.
+Trades store **Client Name, Buying Lot, Brokerage, Account Opened By**.
+The UI does **not** auto-calculate company revenue, dealer payout, or
+opener incentive from brokerage. Admin types **Revenue** and
+**Incentive** on the Targets tab (`FinanceEntry`).
 
 ### Loans
 

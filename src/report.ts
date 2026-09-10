@@ -1,11 +1,9 @@
 import type { Schema } from "../amplify/data/resource";
 import {
   closedLeadCountFor,
-  companyRevenueFor,
   financeSum,
   pctOf,
   sumTargetsInPeriod,
-  tradingSplit,
   openedByOther,
 } from "./revenue";
 
@@ -131,7 +129,7 @@ export function buildEmployeeReport(
       const closedTarget = summed.weeksSet > 0 ? summed.leadsClosedTarget : null;
       const revenueTarget = summed.weeksSet > 0 ? summed.revenueTarget : null;
       const closedActual = closedLeadCountFor(username, leads, range);
-      const revenueActual = companyRevenueFor(username, range, trades, insurance);
+      const revenueActual = financeSum(finance, "revenue", range, username);
       const incentiveEarned = financeSum(finance, "incentive", range, username);
 
       return {
@@ -199,8 +197,7 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
   return lines.join("\n");
 }
 
-/** CSV of trades in a date range (inclusive YYYY-MM-DD). Optional name resolver for the Dealer column.
- *  Dealers downloading their own log omit brokerage and company ₹. */
+/** CSV of trades in a date range (inclusive YYYY-MM-DD). No calculated dealer/company ₹. */
 export function tradesToCSV(
   trades: Trade[],
   range: { start: string; end: string },
@@ -208,7 +205,7 @@ export function tradesToCSV(
   dealerOnly?: boolean
 ): string {
   const header = dealerOnly
-    ? ["Date", "Client Name", "Buying Lot", "Account Opened By", "Your Revenue (INR)"]
+    ? ["Date", "Client Name", "Buying Lot", "Account Opened By", "Brokerage (INR)"]
     : [
         "Date",
         "Dealer",
@@ -216,8 +213,6 @@ export function tradesToCSV(
         "Buying Lot",
         "Account Opened By",
         "Brokerage (INR)",
-        "Company Revenue (INR)",
-        "Dealer Revenue (INR)",
       ];
   const lines = [header.map(csvEscape).join(",")];
   trades
@@ -229,13 +224,12 @@ export function tradesToCSV(
     .forEach((t) => {
       const date = (t.createdAt ?? "").slice(0, 10);
       const brokerage = t.brokerage ?? 0;
-      const split = tradingSplit(brokerage, t);
       const opened = openedByOther(t)
         ? (dealerName ? dealerName(t.accountOpenedBy) : (t.accountOpenedBy ?? ""))
         : "OWN";
       lines.push(
         (dealerOnly
-          ? [date, t.clientName, t.buyingLot ?? "", opened, split.dealer]
+          ? [date, t.clientName, t.buyingLot ?? "", opened, brokerage]
           : [
               date,
               dealerName ? dealerName(t.owner) : (t.owner ?? ""),
@@ -243,8 +237,6 @@ export function tradesToCSV(
               t.buyingLot ?? "",
               opened,
               brokerage,
-              split.company,
-              split.dealer,
             ]
         ).map(csvEscape).join(",")
       );
