@@ -134,8 +134,9 @@ sales plus **This Month's Incentive** (admin-entered only). Trades do
 
 Admins get an extra **Trades** tab showing every dealer's trades, with:
 
-- Period pills: **Day / This week / This month / Last month** (for
-  trade count and CSV). No auto-calculated revenue cards.
+- Period pills: **Day / This week / This month / Last month**. Admin
+  sees **Total Brokerage** and **Company Revenue** (brokerage − 20%
+  platform). No dealer/employee payout cards.
 - **Account Opened By** on each trade (admin dropdown): **OWN** or a
   sales/RM/admin. Dealers are not in the opener list.
 - **All Trades** is sorted by `createdAt`, **newest first**. Deleting a
@@ -300,10 +301,10 @@ Not taken from `Lead.value`. Admin types **company ₹** on
 
 ### Trading (dealer trades)
 
-Trades store **Client Name, Buying Lot, Brokerage, Account Opened By**.
-The UI does **not** auto-calculate company revenue, dealer payout, or
-opener incentive from brokerage. Admin types **Revenue** and
-**Incentive** on the Targets tab (`FinanceEntry`).
+**Company revenue** = brokerage − 20% platform (`brokerage × 0.8`).
+Shown on the admin Trades tab (totals + Company ₹ column) and admin
+CSV. Dealer / employee payout is **not** calculated or shown.
+Incentive is admin-entered on Targets (`FinanceEntry`).
 
 ### Loans
 

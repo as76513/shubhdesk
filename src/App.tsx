@@ -49,6 +49,7 @@ import {
 import {
   pctOf,
   progressColor,
+  tradingSplit,
   openedByOther,
   accountOpenedBySelectValue,
   ACCOUNT_OPENED_OWN,
@@ -73,7 +74,10 @@ import {
   type CompanyActuals,
   type MetricTargets,
   tradePeriodRange,
+  sumBrokerage,
   inDateRange,
+  toISODateLocal,
+  formatMonthLabel,
   type TradePeriod,
 } from "./revenue";
 import type { Schema } from "../amplify/data/resource";
@@ -301,6 +305,13 @@ export default function App() {
       closed: closed.length,
     };
   }, [visibleLeads]);
+
+  const monthBrokerage = useMemo(() => {
+    const { start, end } = monthBounds();
+    return trades
+      .filter((t) => inDateRange(t.createdAt, start, end))
+      .reduce((s, t) => s + (t.brokerage ?? 0), 0);
+  }, [trades]);
 
   const viewMonthRange = useMemo(
     () => monthBounds(parseISODate(viewMonth)),
@@ -634,7 +645,7 @@ export default function App() {
           </div>
         )}
 
-        <StatBar stats={stats} revenue={monthRevenue} />
+        <StatBar stats={stats} revenue={monthRevenue} totalBrokerage={me?.role === "admin" ? monthBrokerage : undefined} />
         {me?.role === "admin" ? (
           view !== "trades" && view !== "targets" ? (
             <>
@@ -831,12 +842,15 @@ function Header({ me }: { me: { displayName: string; role: Role } | null }) {
   );
 }
 
-function StatBar({ stats, revenue }: { stats: any; revenue?: number }) {
+function StatBar({ stats, revenue, totalBrokerage }: { stats: any; revenue?: number; totalBrokerage?: number }) {
   const items = [
     { label: "Total Leads", value: stats.total },
     { label: "Active", value: stats.active },
     { label: "Closed Won", value: stats.closed },
     { label: "Revenue", value: rupee(revenue ?? 0) },
+    ...(totalBrokerage != null
+      ? [{ label: `Total Brokerage (${formatMonthLabel(toISODateLocal())})`, value: rupee(totalBrokerage) }]
+      : []),
   ];
   return (
     <div className="statBar" style={S.statBar}>
@@ -1618,6 +1632,9 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
     downloadCSV(`shubhdesk-trades-${stamp}.csv`, csv);
   }
 
+  const totalBrokerage = sumBrokerage(periodTrades);
+  const companyRevenue = periodTrades.reduce((s, t) => s + tradingSplit(t.brokerage ?? 0).company, 0);
+
   const PERIODS: { id: TradePeriod; label: string }[] = [
     { id: "day", label: "Day" },
     { id: "thisWeek", label: "This week" },
@@ -1655,6 +1672,18 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
       </div>
 
       <div className="statBar" style={{ ...S.statBar, marginBottom: 16 }}>
+        {isAdmin && (
+          <>
+            <div style={S.statCard}>
+              <div style={S.statValue}>{rupee(totalBrokerage)}</div>
+              <div style={S.statLabel}>Total Brokerage — {range.label}</div>
+            </div>
+            <div style={S.statCard}>
+              <div style={S.statValue}>{rupee(companyRevenue)}</div>
+              <div style={S.statLabel}>Company Revenue (after 20% platform)</div>
+            </div>
+          </>
+        )}
         <div style={S.statCard}>
           <div style={S.statValue}>{periodTrades.length}</div>
           <div style={S.statLabel}>Trades — {range.label}</div>
@@ -1670,9 +1699,11 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           <div style={{ ...th, flex: 1.4 }}>Buying Lot</div>
           <div style={{ ...th, flex: 1.8 }}>Account Opened By</div>
           <div style={{ ...th, flex: 1, textAlign: "right" }}>Brokerage</div>
+          {isAdmin && <div style={{ ...th, flex: 1, textAlign: "right" }}>Company ₹</div>}
           <div style={{ width: 66 }} />
         </div>
         {tradesNewestFirst.map((t) => {
+          const company = tradingSplit(t.brokerage ?? 0).company;
           return (
             <div key={t.id} className="row dataRow" style={S.listRow}>
               <DataCell label="Date" style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</DataCell>
@@ -1701,6 +1732,9 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
                 )}
               </DataCell>
               <DataCell label="Brokerage" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(t.brokerage)}</DataCell>
+              {isAdmin && (
+                <DataCell label="Company ₹" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{rupee(company)}</DataCell>
+              )}
               <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
                 <button className="ghost sm" onClick={() => setDeleteTrade(t)}>Delete</button>
               </DataCell>

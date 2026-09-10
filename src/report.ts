@@ -4,6 +4,7 @@ import {
   financeSum,
   pctOf,
   sumTargetsInPeriod,
+  tradingSplit,
   openedByOther,
 } from "./revenue";
 
@@ -197,7 +198,7 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
   return lines.join("\n");
 }
 
-/** CSV of trades in a date range (inclusive YYYY-MM-DD). No calculated dealer/company ₹. */
+/** CSV of trades in a date range. Admin CSV includes company ₹ (brokerage − platform); no dealer payout. */
 export function tradesToCSV(
   trades: Trade[],
   range: { start: string; end: string },
@@ -213,6 +214,7 @@ export function tradesToCSV(
         "Buying Lot",
         "Account Opened By",
         "Brokerage (INR)",
+        "Company Revenue (INR)",
       ];
   const lines = [header.map(csvEscape).join(",")];
   trades
@@ -224,6 +226,7 @@ export function tradesToCSV(
     .forEach((t) => {
       const date = (t.createdAt ?? "").slice(0, 10);
       const brokerage = t.brokerage ?? 0;
+      const company = tradingSplit(brokerage).company;
       const opened = openedByOther(t)
         ? (dealerName ? dealerName(t.accountOpenedBy) : (t.accountOpenedBy ?? ""))
         : "OWN";
@@ -237,6 +240,7 @@ export function tradesToCSV(
               t.buyingLot ?? "",
               opened,
               brokerage,
+              company,
             ]
         ).map(csvEscape).join(",")
       );
