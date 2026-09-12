@@ -3,7 +3,7 @@ import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../amplify/data/resource';
 
 /**
- * ShubhDesk — dealer trade client
+ * ShubhDesk — advisor trade client
  * ---------------------------------------------------------------
  * Standalone from leadClient.ts: Trade is a separate, minimal model
  * (Client Name, Buying Lot, Brokerage) unrelated to the Lead pipeline.
@@ -31,7 +31,7 @@ async function listAllPages<T>(
   return out;
 }
 
-/** Trades the caller may see: own (dealer), opened-by them (sales/RM), or all (admin). */
+/** Trades the caller may see: own (advisor), opened-by them (wealth manager), or all (admin). */
 export async function listTrades() {
   return listAllPages((nextToken) =>
     client.models.Trade.list({ limit: 1000, nextToken })

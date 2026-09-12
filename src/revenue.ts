@@ -32,19 +32,19 @@ type CompanyTarget = Schema["CompanyTarget"]["type"];
  * constants and the rest of the app follows.
  *
  * Trading:  company = brokerage − 20% platform
- *           dealer  = 30% of company
- *           if accountOpenedBy is set and is not the dealer, that 30% is
- *           split 50/50 — dealer keeps half, the opener gets the other half
- * Insurance: company is admin-entered; salesperson = 50% of company
+ *           advisor  = 30% of company
+ *           if accountOpenedBy is set and is not the advisor, that 30% is
+ *           split 50/50 — advisor keeps half, the opener gets the other half
+ * Insurance: company is admin-entered; wealth manager = 50% of company
  */
 export const TRADING_PLATFORM_FEE = 0.2;
-export const DEALER_SHARE_OF_COMPANY = 0.3;
-export const DEALER_OPENED_ELSEWHERE_CUT = 0.5;
-export const INSURANCE_SALES_SHARE = 0.5;
-/** Stored on Trade.accountOpenedBy when the dealer opened the account themselves. */
+export const ADVISOR_SHARE_OF_COMPANY = 0.3;
+export const ADVISOR_OPENED_ELSEWHERE_CUT = 0.5;
+export const INSURANCE_WEALTH_MANAGER_SHARE = 0.5;
+/** Stored on Trade.accountOpenedBy when the advisor opened the account themselves. */
 export const ACCOUNT_OPENED_OWN = "OWN";
 
-/** True when admin recorded that someone other than the dealer opened the account. */
+/** True when admin recorded that someone other than the advisor opened the account. */
 export function openedByOther(trade: { owner?: string | null; accountOpenedBy?: string | null }): boolean {
   const opened = trade.accountOpenedBy;
   if (!opened || opened === ACCOUNT_OPENED_OWN || opened === trade.owner) return false;
@@ -58,19 +58,19 @@ export function accountOpenedBySelectValue(trade: { owner?: string | null; accou
 export function tradingSplit(
   brokerage: number,
   trade?: { owner?: string | null; accountOpenedBy?: string | null }
-): { company: number; dealer: number } {
+): { company: number; advisor: number } {
   const company = Math.round(brokerage * (1 - TRADING_PLATFORM_FEE));
-  let dealer = Math.round(company * DEALER_SHARE_OF_COMPANY);
+  let advisor = Math.round(company * ADVISOR_SHARE_OF_COMPANY);
   if (trade && openedByOther(trade)) {
-    dealer = Math.round(dealer * DEALER_OPENED_ELSEWHERE_CUT);
+    advisor = Math.round(advisor * ADVISOR_OPENED_ELSEWHERE_CUT);
   }
-  return { company, dealer };
+  return { company, advisor };
 }
 
-export function insuranceSplit(companyRevenue: number): { company: number; sales: number } {
+export function insuranceSplit(companyRevenue: number): { company: number; wealthManager: number } {
   return {
     company: companyRevenue,
-    sales: Math.round(companyRevenue * INSURANCE_SALES_SHARE),
+    wealthManager: Math.round(companyRevenue * INSURANCE_WEALTH_MANAGER_SHARE),
   };
 }
 
@@ -112,9 +112,9 @@ export function weekBounds(weekStart: string): { start: string; end: string } {
 }
 
 /**
- * A closed lead counts for the current owner (usually the RM who closed
- * it) and, if different, the original salesperson — so both roles can
- * have a meaningful "leads closed" target after handoff.
+ * A closed lead counts for the current owner and, if different, the
+ * original sourcer — so both can have a meaningful "leads closed"
+ * target if ownership is ever reassigned.
  */
 export function closedLeadCountFor(
   username: string,
@@ -146,8 +146,8 @@ export function companyRevenueFor(
 }
 
 /**
- * Opener's share when they are Trade.accountOpenedBy (not OWN / not the dealer).
- * Same rupee amount as the dealer's halved payout on that trade.
+ * Opener's share when they are Trade.accountOpenedBy (not OWN / not the advisor).
+ * Same rupee amount as the advisor's halved payout on that trade.
  */
 export function accountOpenedIncentiveFor(
   username: string,
@@ -161,24 +161,24 @@ export function accountOpenedIncentiveFor(
         openedByOther(t) &&
         inDateRange(t.createdAt, range.start, range.end)
     )
-    .reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
+    .reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).advisor, 0);
 }
 
-/** Employee payout in the range: dealer cut + opener cut + insurance 50%. */
+/** Employee payout in the range: advisor cut + opener cut + insurance 50%. */
 export function incentiveFor(
   username: string,
   range: { start: string; end: string },
   trades: Trade[],
   insurance: InsuranceRevenue[]
 ): number {
-  const dealerCut = trades
+  const advisorCut = trades
     .filter((t) => t.owner === username && inDateRange(t.createdAt, range.start, range.end))
-    .reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).dealer, 0);
+    .reduce((s, t) => s + tradingSplit(t.brokerage ?? 0, t).advisor, 0);
   const openerCut = accountOpenedIncentiveFor(username, range, trades);
-  const salesCut = insurance
+  const wealthManagerCut = insurance
     .filter((r) => r.username === username && inDateRange(r.earnedOn, range.start, range.end))
-    .reduce((s, r) => s + insuranceSplit(r.companyRevenue ?? 0).sales, 0);
-  return dealerCut + openerCut + salesCut;
+    .reduce((s, r) => s + insuranceSplit(r.companyRevenue ?? 0).wealthManager, 0);
+  return advisorCut + openerCut + wealthManagerCut;
 }
 
 export function findTarget(
@@ -306,7 +306,7 @@ export function companyTargetOf(
   };
 }
 
-/** Company-level quota = per-person quota × number of sales/RM. */
+/** Company-level quota = per-person quota × number of wealth managers. */
 export function scaleTargets(target: MetricTargets, people: number): MetricTargets {
   const n = Math.max(1, people);
   return {

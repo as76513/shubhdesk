@@ -37,7 +37,7 @@ async function listAllPages<T>(
 
 const JOINT_STAGE = 'joint_meeting';
 
-export type Role = 'admin' | 'rm' | 'sales' | 'dealer';
+export type Role = 'admin' | 'wealth_manager' | 'advisor';
 
 /** The signed-in user's id, display name, and role (from Cognito group). */
 export async function getMe(): Promise<{
@@ -51,11 +51,9 @@ export async function getMe(): Promise<{
     (session.tokens?.accessToken?.payload['cognito:groups'] as string[]) ?? [];
   const role: Role = groups.includes('admin')
     ? 'admin'
-    : groups.includes('rm')
-    ? 'rm'
-    : groups.includes('dealer')
-    ? 'dealer'
-    : 'sales';
+    : groups.includes('advisor')
+    ? 'advisor'
+    : 'wealth_manager';
 
   let displayName = user.username;
   try {
@@ -68,21 +66,6 @@ export async function getMe(): Promise<{
   return { username: user.username, displayName, role };
 }
 
-/**
- * All RM users, for the handoff dropdown. Reads from the Cognito-backed
- * StaffProfile records (see note in App on seeding these). Falls back to
- * an empty list if none exist yet.
- */
-export async function listRMs() {
-  return listAllPages((nextToken) =>
-    client.models.StaffProfile.list({
-      filter: { role: { eq: 'rm' } },
-      limit: 1000,
-      nextToken,
-    })
-  );
-}
-
 /** All staff profiles, to resolve usernames -> display names on cards. */
 export async function listStaff() {
   return listAllPages((nextToken) =>
@@ -93,7 +76,7 @@ export async function listStaff() {
 /**
  * Create a StaffProfile row for the current user if one doesn't exist
  * yet, using the local part of their email as a friendly display name
- * (e.g. "dealer@shubhdesk.test" -> "dealer"). Runs once per login and
+ * (e.g. "advisor@shubhdesk.test" -> "advisor"). Runs once per login and
  * is a no-op if a row already exists — this is what stops every new
  * hire from showing up as a raw Cognito ID until an admin manually
  * seeds a StaffProfile row for them.
@@ -107,7 +90,7 @@ export async function ensureOwnStaffProfile(role: Role) {
   if (existing.length > 0) {
     const row = existing[0];
     // Cognito group is the source of truth; keep StaffProfile.role in
-    // sync so target strips and the RM picker don't use a stale role
+    // sync so target strips and people-pickers don't use a stale role
     // after someone is moved between groups.
     if (row && row.role !== role) {
       const { data, errors: updateErrors } = await client.models.StaffProfile.update({
@@ -273,7 +256,7 @@ export async function moveStage(
   // Write the matching activity-log entry. People's names are resolved
   // with a fresh staff-directory lookup right here (not a resolver
   // passed in by the caller) so this never shows a stale/wrong name --
-  // e.g. an RM whose StaffProfile was auto-created moments ago in
+  // e.g. a colleague whose StaffProfile was auto-created moments ago in
   // another tab still resolves correctly. Stage ids are used as-is
   // (not looked up against App.tsx's STAGES labels) so a legacy or
   // unrecognized stage id shows honestly rather than silently

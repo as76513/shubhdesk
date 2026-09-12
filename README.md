@@ -2,8 +2,8 @@
 
 Internal sales pipeline for **ShubhShree Knowledge Hub Pvt. Ltd.**
 
-Telecaller/salesman work leads through the early stages, then hand off to
-a Relationship Manager who closes the deal. Tracks client details, a
+Wealth Managers and Advisors work a lead end-to-end through New Lead →
+Meeting → Joint Meeting → Deal Closed. Tracks client details, a
 client code (`SSKH-YYMM-NNN`), requirements, and win-back follow-ups.
 
 Built with React + Vite + AWS Amplify Gen 2 (Cognito auth, DynamoDB
@@ -47,7 +47,7 @@ GoDaddy domain — is in **[DEPLOY.md](./DEPLOY.md)**.
 
 ```
 amplify/
-  auth/resource.ts    Cognito user pool + admin / rm / sales / dealer groups
+  auth/resource.ts    Cognito user pool + admin / wealth_manager / advisor groups
   data/resource.ts    Lead, Note, Counter, StaffProfile, Trade,
                       CompanyTarget, Target, InsuranceRevenue + auth rules
   backend.ts          Wires it together
@@ -74,20 +74,22 @@ enum keeps the values); leftover Follow-up / In Progress cards show
 under Joint Meeting. Rejected leads stay in List, not on the board.
 
 From **New Lead**, the drawer shows "→ Proceed to Meeting" or
-"✕ Client Rejected". Meeting stays with sales. From **Meeting**,
-"→ Proceed to Joint Meeting" hands the lead to an RM. Rejecting
-(from anywhere) requires picking a one-click **reason** (Not
+"✕ Client Rejected". From **Meeting**, "→ Proceed to Joint Meeting"
+prompts for who you went on the call with and where. From **Joint
+Meeting**, "→ Deal Closed" closes it out. The owner never changes as a
+lead moves through these stages — one person works it start to finish.
+Rejecting (from anywhere) requires picking a one-click **reason** (Not
 Interested / Chose Competitor / Budget / Bad Timing / Other) — no
 skipping — which feeds the win-back follow-up decision later. The
 reason is shown as a red badge next to the stage pill in the drawer.
 
 The **Activity Log** in the drawer states each transition explicitly
-("Moved from new to meeting", "Handed off to Anita by Amol
-(new → meeting)") so the pipeline path is readable from the log text
-alone, without needing to cross-reference dates or entry order. Only
-notes written from this point on look like this — older entries may
-still show raw IDs, since it's stored text and can't be fixed up
-after the fact.
+("Moved from new to meeting", "Joint meeting with Anita at the client's
+office by Amol (meeting → joint_meeting)") so the pipeline path is
+readable from the log text alone, without needing to cross-reference
+dates or entry order. Only notes written from this point on look like
+this — older entries may still show raw IDs, since it's stored text
+and can't be fixed up after the fact.
 
 Every new lead also gets a **source** (Cold Call / Referral / Walk-in /
 Existing Client / Digital / Other) — a single dropdown defaulting to
@@ -97,52 +99,50 @@ lead creation.
 **Board view** supports drag-and-drop: pick up a lead card (mouse click
 and drag, or press-and-hold then drag on touch) and drop it on another
 column to move it. Only leads you can edit are draggable, and dropping
-on **Joint Meeting** from New Lead or Meeting still triggers the
-RM-handoff picker described below — drag-and-drop and the drawer's
-buttons both funnel through the same move logic, so there's one
-behavior everywhere.
+on **Joint Meeting** from New Lead or Meeting still triggers the joint
+meeting prompt described below — drag-and-drop and the drawer's buttons
+both funnel through the same move logic, so there's one behavior
+everywhere.
 
-**Sales → RM handoff**: moving a lead into **Joint Meeting** from
-**New Lead** or **Meeting** prompts you to pick a Relationship
-Manager. Ownership transfers to them immediately; the original
-salesman keeps permanent **read-only** visibility (`sourcedBy`) and can
-follow progress but not edit or comment further.
+**Joint Meeting**: moving a lead into **Joint Meeting** from **New
+Lead** or **Meeting** prompts you to record who you went with
+(`jointWith`, any colleague) and where (`meetingLocation`). Ownership
+does not change — the lead stays with whoever is working it.
 
 **Win-back follow-ups**: any lead — most useful on a rejected or
 dormant one — can get a `followUpOn` date. The "Follow-ups Due" tab
-(admin/RM only) lists everything due today or earlier, for reconnecting
-with clients who didn't convert the first time.
+(admin/Wealth Manager only) lists everything due today or earlier, for
+reconnecting with clients who didn't convert the first time.
 
 **Top stat bar**: Total Leads, Active, Closed Won, and **Revenue**
 (admin-entered company revenue for the current calendar month —
-everyone sees their own amount; admin sees the company total). Admin
-Below that, admin
-sees one **Company targets** strip. Sales/RM/**dealer** see their own
-progress strip (monthly by default). Admin can **delete a lead** from
-the drawer after confirmation.
+everyone sees their own amount; admin sees the company total). Below
+that, admin sees one **Company targets** strip. Wealth
+Manager/**Advisor** see their own progress strip (monthly by default).
+Admin can **delete a lead** from the drawer after confirmation.
 
 ---
 
-## Dealer trade log
+## Advisor trade log
 
-**Dealer** uses the **same Lead pipeline as sales** (board, My Leads,
-New Lead, hand off at Joint Meeting) and still has a **Trades** tab
-for their own log: **Client Name, Buying Lot, Brokerage**, plus
-**Account Opened By**. They see the same **monthly progress** strip as
-sales plus **This Month's Incentive** (admin-entered only). Trades do
-**not** show calculated dealer revenue, brokerage totals, or payouts.
+**Advisor** uses the **same Lead pipeline as Wealth Manager** (board,
+My Leads, New Lead) and still has a **Trades** tab for their own log:
+**Client Name, Buying Lot, Brokerage**, plus **Account Opened By**.
+They see the same **monthly progress** strip as Wealth Manager plus
+**This Month's Incentive** (admin-entered only). Trades do **not** show
+calculated advisor revenue, brokerage totals, or payouts.
 
-Admins get an extra **Trades** tab showing every dealer's trades, with:
+Admins get an extra **Trades** tab showing every advisor's trades, with:
 
 - Period pills: **Day / This week / This month / Last month**. Admin
   sees **Total Brokerage** and **Company Revenue** (brokerage − 20%
-  platform). No dealer/employee payout cards.
+  platform). No advisor/employee payout cards.
 - **Account Opened By** on each trade (admin dropdown): **OWN** or a
-  sales/RM/admin. Dealers are not in the opener list.
+  Wealth Manager/admin. Advisors are not in the opener list.
 - **All Trades** is sorted by `createdAt`, **newest first**. Deleting a
   trade asks for confirmation.
-- CSV: Date, Dealer, Client Name, Buying Lot, Account Opened By,
-  Brokerage (raw). No company or dealer payout columns.
+- CSV: Date, Advisor, Client Name, Buying Lot, Account Opened By,
+  Brokerage (raw). No company or advisor payout columns.
 
 The UI is **phone-friendly** (≤720px): header wraps, progress +
 incentive stack, and trade/lead/insurance rows become labeled cards
@@ -152,12 +152,11 @@ instead of a clipped table.
 
 ## Roles
 
-| Role   | Sees | Can do |
-|--------|------|--------|
-| sales  | own + sourced leads | create leads, work New Lead + Meeting, hand off to RM at Joint Meeting; own NCA/AUM/SIP/Insurance strip + admin-entered monthly incentive |
-| rm     | all leads (read); owned leads (write) | take Joint Meeting handoffs, mark Deal Closed, win-back list; own progress strip + monthly incentive |
-| dealer | own + sourced leads; own trades | same pipeline and month progress bar as sales; log/edit/delete own trades; admin-entered incentive |
-| admin  | everything | pipeline, Trades, Targets, employee CSV, confirmed deletes (lead / trade / insurance), Account Opened By |
+| Role           | Sees | Can do |
+|----------------|------|--------|
+| wealth_manager | own + sourced leads | create leads, work New Lead → Meeting → Joint Meeting → Deal Closed; own NCA/AUM/SIP/Insurance strip + admin-entered monthly incentive |
+| advisor        | own + sourced leads; own trades | same pipeline and month progress bar as wealth_manager; log/edit/delete own trades; admin-entered incentive |
+| admin          | everything | pipeline, Trades, Targets, employee CSV, confirmed deletes (lead / trade / insurance), Account Opened By |
 
 All of this is enforced **server-side**, not just hidden in the UI — the
 auth rules in `amplify/data/resource.ts` (`allow.ownerDefinedIn('owner')`,
@@ -169,11 +168,12 @@ how the schema encodes this.
 ### Staff setup
 
 A `StaffProfile` row (`username`, `displayName`, `role`) is what turns
-a raw Cognito ID into a friendly name on cards and in the RM handoff
-picker. **This now happens automatically** — the app creates it on a
-user's first login, using the local part of their email as the display
-name (e.g. `dealer@shubhdesk.test` → "dealer"). No admin step required
-for the app to work correctly.
+a raw Cognito ID into a friendly name on cards and in people-pickers
+(joint meeting colleague, account opener). **This now happens
+automatically** — the app creates it on a user's first login, using the
+local part of their email as the display name (e.g.
+`advisor@shubhdesk.test` → "advisor"). No admin step required for the
+app to work correctly.
 
 If you want a nicer name than the email prefix, an admin can still
 edit the row afterward in the Amplify console's Data manager. The
@@ -201,12 +201,15 @@ in `DEPLOY.md`.
 
 Admins get a "⬇ Report" button that downloads a CSV for This Week /
 This Month / Last Month, per employee: leads sourced, deals closed
-(count + value), handoffs to RM, pipeline stage breakdown, plus
+(count + value), owner handoffs, pipeline stage breakdown, plus
 **Closed Target / Actual / %**, **Revenue Target / Actual / %**, and
 **Incentive Earned**.
 
 - Closed dates use `Lead.closedAt` (falls back to `updatedAt` for older
-  rows). Handoffs use `Lead.handoffAt` the same way.
+  rows). Owner handoffs use `Lead.handoffAt` the same way — this only
+  counts a lead whose current `owner` differs from `sourcedBy`, which
+  the app itself no longer does automatically, so it's effectively a
+  historical figure for older data.
 - **Deals Closed** in the CSV counts only leads the person currently
   **owns**. **Closed Actual** counts owner **or** `sourcedBy` (same as
   NCA credit).
@@ -225,7 +228,7 @@ Computed client-side from data already loaded — see `src/report.ts`.
 ## Targets tab (admin)
 
 - **Individual quotas** (collapsed by default — one-time setup): the
-  same NCA / AUM / SIP / Insurance numbers for every sales and RM, for
+  same NCA / AUM / SIP / Insurance numbers for every Wealth Manager, for
   monthly, quarterly, and yearly. Not a team pool and not a per-person
   table. Defaults until admin saves:
 
@@ -236,16 +239,16 @@ Computed client-side from data already loaded — see `src/report.ts`.
   | SIP (₹) | 5,000 | 30,000 | 1,00,000 |
   | Insurance (₹) | 50,000 | 1,50,000 | 6,00,000 |
 
-- **Employee progress**: one card per sales/RM. **Monthly** by default;
-  radios switch the whole list to Quarterly or Yearly (only one cadence
-  visible). The heading is the period being shown (e.g. August 2026 /
-  Q3 2026 / 2026).
+- **Employee progress**: one card per Wealth Manager/Advisor. **Monthly**
+  by default; radios switch the whole list to Quarterly or Yearly (only
+  one cadence visible). The heading is the period being shown (e.g.
+  August 2026 / Q3 2026 / 2026).
 - **Insurance company revenue**: admin enters company ₹ attributed to
-  a salesperson (`earnedOn` date); the UI shows their 50% automatically.
-  Deleting an entry asks for confirmation.
+  a Wealth Manager (`earnedOn` date); the UI shows their 50%
+  automatically. Deleting an entry asks for confirmation.
 
 On the **pipeline**, admin does **not** see per-person strips. They see
-**Company targets** = per-person quota × number of sales/RM, vs
+**Company targets** = per-person quota × number of Wealth Managers, vs
 company-wide actuals (each closed deal counted once).
 
 SIP and Loans have **no** trading-style ₹ split yet.
@@ -272,11 +275,11 @@ Loans) in the period.
 
 | View | What is counted |
 |---|---|
-| One employee (Targets tab, personal strip) | Closed leads where they are **owner or sourcedBy** (both get credit after RM handoff) |
+| One employee (Targets tab, personal strip) | Closed leads where they are **owner or sourcedBy** (both get credit if ownership is ever reassigned) |
 | Company (admin pipeline) | Closed leads **once** (no double-count) |
 
 Goal for one person = the quota admin saved (default 10 / month).
-Company goal = that quota × count of sales+RM profiles.
+Company goal = that quota × count of Wealth Manager profiles.
 
 ### AUM
 
@@ -296,14 +299,14 @@ Not taken from `Lead.value`. Admin types **company ₹** on
 
 - Company / employee actual = sum of those rows in the period
   (employee: only rows for that username).
-- Salesperson incentive = **50%** of that company ₹
-  (`INSURANCE_SALES_SHARE`).
+- Wealth Manager incentive = **50%** of that company ₹
+  (`INSURANCE_WEALTH_MANAGER_SHARE`).
 
-### Trading (dealer trades)
+### Trading (advisor trades)
 
 **Company revenue** = brokerage − 20% platform (`brokerage × 0.8`).
 Shown on the admin Trades tab (totals + Company ₹ column) and admin
-CSV. Dealer / employee payout is **not** calculated or shown.
+CSV. Advisor / employee payout is **not** calculated or shown.
 Incentive is admin-entered on Targets (`FinanceEntry`).
 
 ### Loans
@@ -314,8 +317,8 @@ No revenue formula yet. Closed Loans still count toward **NCA**
 ### Incentive (monthly)
 
 Admin enters **Employee + incentive amount + date** on the Targets
-tab (below Revenue). Shown on sales/RM/dealer as **This Month's
-Incentive**. There is no calculated dealer-trade incentive. The
+tab (below Revenue). Shown on Wealth Manager/Advisor as **This Month's
+Incentive**. There is no calculated advisor-trade incentive. The
 employee CSV **Incentive Earned** column sums those admin rows for
 the report period.
 

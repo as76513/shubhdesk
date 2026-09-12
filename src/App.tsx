@@ -129,6 +129,12 @@ const REJECTION_REASONS = [
 ];
 
 const rupee = (n?: number | null) => "₹" + (n ?? 0).toLocaleString("en-IN");
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Admin",
+  wealth_manager: "Wealth Manager",
+  advisor: "Advisor",
+};
+const roleLabel = (role?: string | null) => (role ? ROLE_LABELS[role] ?? role : role);
 const stageOf = (id?: string | null) => {
   const live = STAGES.find((s) => s.id === id);
   if (live) return live;
@@ -230,7 +236,7 @@ export default function App() {
     }
   }, []);
 
-  // Initial load. Dealers get the sales pipeline plus company quotas
+  // Initial load. Advisors get the same pipeline plus company quotas
   // and finance entries (AUM / revenue / incentive) for their month bar.
   // They skip weekly Target rows (admin CSV only).
   useEffect(() => {
@@ -240,7 +246,7 @@ export default function App() {
         const meInfo = await getMe();
         setMe(meInfo);
         await ensureOwnStaffProfile(meInfo.role);
-        if (meInfo.role === "dealer") {
+        if (meInfo.role === "advisor") {
           const [ls, st, ct, ir, fe, tr] = await Promise.all([
             listLeads(),
             listStaff(),
@@ -641,7 +647,7 @@ export default function App() {
         {error && (
           <div style={S.errorBar}>
             <span style={{ whiteSpace: "pre-line" }}>{error}</span>{" "}
-            <button className="linkbtn" onClick={() => { refresh(); if (me?.role === "dealer") refreshTrades(); }}>Retry</button>
+            <button className="linkbtn" onClick={() => { refresh(); if (me?.role === "advisor") refreshTrades(); }}>Retry</button>
           </div>
         )}
 
@@ -682,12 +688,12 @@ export default function App() {
           <div style={S.tabs}>
             <button className={view === "board" ? "tab active" : "tab"} onClick={() => setView("board")}>Pipeline Board</button>
             <button className={view === "list" ? "tab active" : "tab"} onClick={() => setView("list")}>My Leads</button>
-            {(me?.role === "admin" || me?.role === "rm") && (
+            {(me?.role === "admin" || me?.role === "wealth_manager") && (
               <button className={view === "followups" ? "tab active" : "tab"} onClick={() => setView("followups")}>
                 Follow-ups Due{dueLeads.length > 0 ? ` (${dueLeads.length})` : ""}
               </button>
             )}
-            {(me?.role === "admin" || me?.role === "dealer") && (
+            {(me?.role === "admin" || me?.role === "advisor") && (
               <button className={view === "trades" ? "tab active" : "tab"} onClick={() => setView("trades")}>Trades</button>
             )}
             {me?.role === "admin" && (
@@ -964,14 +970,14 @@ function CadenceToolbar({
 
 function pipelineStaff(staff: Staff[]): Staff[] {
   return staff
-    .filter((s) => s.role === "sales" || s.role === "rm")
+    .filter((s) => s.role === "wealth_manager")
     .slice()
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 function progressStaff(staff: Staff[]): Staff[] {
   return staff
-    .filter((s) => s.role === "sales" || s.role === "rm" || s.role === "dealer")
+    .filter((s) => s.role === "wealth_manager" || s.role === "advisor")
     .slice()
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
@@ -996,7 +1002,7 @@ function CompanyProgressStrip({
         <MonthNav month={month} onChange={onMonthChange} />
       </div>
       <div style={S.hint}>
-        Sum of individual quotas across {people} sales/RM. Each closed deal counts once for the company.
+        Sum of individual quotas across {people} Wealth Managers. Each closed deal counts once for the company.
       </div>
       <TargetMetrics actuals={actuals} target={target} />
     </div>
@@ -1078,7 +1084,7 @@ function EmployeeProgressSection({
         <CadenceRadios name="employee-progress-cadence" value={cadence} onChange={setCadence} />
       </div>
       {people.length === 0 ? (
-        <div style={S.empty}>No sales, RM, or dealer profiles yet — progress appears once staff log in.</div>
+        <div style={S.empty}>No Wealth Manager or Advisor profiles yet — progress appears once staff log in.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {people.map((p) => (
@@ -1600,7 +1606,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
   const openers = useMemo(
     () =>
       staff
-        .filter((s) => s.role !== "dealer")
+        .filter((s) => s.role !== "advisor")
         .slice()
         .sort((a, b) => a.displayName.localeCompare(b.displayName)),
     [staff]
@@ -1694,7 +1700,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
       <div style={S.list}>
         <div className="dataHead" style={{ ...S.listRow, cursor: "default" }}>
           <div style={{ ...th, flex: 1 }}>Date</div>
-          <div style={{ ...th, flex: 1.3 }}>Dealer</div>
+          <div style={{ ...th, flex: 1.3 }}>Advisor</div>
           <div style={{ ...th, flex: 1.6 }}>Client Name</div>
           <div style={{ ...th, flex: 1.4 }}>Buying Lot</div>
           <div style={{ ...th, flex: 1.8 }}>Account Opened By</div>
@@ -1707,7 +1713,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
           return (
             <div key={t.id} className="row dataRow" style={S.listRow}>
               <DataCell label="Date" style={{ flex: 1, color: "#6B7280", fontSize: 12, cursor: "pointer" }} onClick={() => setEditing(t)}>{(t.createdAt ?? "").slice(0, 10) || "—"}</DataCell>
-              <DataCell label="Dealer" style={{ flex: 1.3, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{nameOf(t.owner)}</DataCell>
+              <DataCell label="Advisor" style={{ flex: 1.3, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{nameOf(t.owner)}</DataCell>
               <DataCell label="Client" className="dc-span" style={{ flex: 1.6, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(t)}>{t.clientName}</DataCell>
               <DataCell label="Buying lot" className="dc-span" style={{ flex: 1.4, color: "#374151", cursor: "pointer" }} onClick={() => setEditing(t)}>{t.buyingLot || "—"}</DataCell>
               <DataCell label="Account opened by" className="dc-span" style={{ flex: 1.8 }} onClick={(e) => e.stopPropagation()}>
@@ -1721,7 +1727,7 @@ function TradesView({ trades, staff, isAdmin, nameOf, onCreate, onUpdate, onDele
                     <option value={ACCOUNT_OPENED_OWN}>OWN</option>
                     {openers.map((s) => (
                       <option key={s.username} value={s.username}>
-                        {s.displayName} ({s.role})
+                        {s.displayName} ({roleLabel(s.role)})
                       </option>
                     ))}
                   </select>
@@ -1828,10 +1834,10 @@ function TradeModal({ trade, employees, isAdmin, nameOf, onClose, onSave }: {
             <select className="sel" value={accountOpenedBy} onChange={(e) => setAccountOpenedBy(e.target.value)} style={{ width: "100%" }}>
               <option value={ACCOUNT_OPENED_OWN}>OWN</option>
               {employees.map((s) => (
-                <option key={s.username} value={s.username}>{s.displayName} ({s.role})</option>
+                <option key={s.username} value={s.username}>{s.displayName} ({roleLabel(s.role)})</option>
               ))}
             </select>
-            <div style={S.hint}>OWN = the dealer opened this account. Otherwise pick the sales/RM who opened it.</div>
+            <div style={S.hint}>OWN = the advisor opened this account. Otherwise pick the Wealth Manager who opened it.</div>
           </Field>
         ) : (
           <div style={{ ...S.hint, marginTop: 8 }}>
@@ -1919,7 +1925,7 @@ function TargetsView({
   const monthRange = monthBounds(parseISODate(viewMonth));
 
   const employees = useMemo(() => {
-    const pool = staff.filter((s) => s.role === "sales" || s.role === "rm" || s.role === "dealer");
+    const pool = staff.filter((s) => s.role === "wealth_manager" || s.role === "advisor");
     const list = (pool.length > 0 ? pool : staff).slice();
     return list.sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [staff]);
@@ -2010,7 +2016,7 @@ function TargetsView({
       {quotasOpen && (
         <>
           <div style={{ ...S.hint, margin: "8px 0 0" }}>
-            The company sets these quotas; every sales and RM is measured against them personally. NCA is closed deals they own or sourced.
+            The company sets these quotas; every Wealth Manager is measured against them personally. NCA is closed deals they own or sourced.
             AUM is the amount you enter under AUM Tracking. SIP is their closed SIP value. Insurance is company revenue you attribute to them below.
             ₹ amounts: 2 Lakh = 2,00,000.
           </div>
@@ -2109,7 +2115,7 @@ function TargetsView({
           <div style={{ ...th, flex: 1 }}>Date</div>
           <div style={{ ...th, flex: 1.4 }}>Employee</div>
           <div style={{ ...th, flex: 1, textAlign: "right" }}>Company ₹</div>
-          <div style={{ ...th, flex: 1, textAlign: "right" }}>Sales (50%)</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Wealth Manager (50%)</div>
           <div style={{ ...th, flex: 1.4 }}>Note</div>
           <div style={{ width: 66 }} />
         </div>
@@ -2118,7 +2124,7 @@ function TargetsView({
             <DataCell label="Date" style={{ flex: 1, fontSize: 12, color: "#6B7280", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.earnedOn}</DataCell>
             <DataCell label="Employee" style={{ flex: 1.4, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{nameOf(r.username)}</DataCell>
             <DataCell label="Company ₹" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(r.companyRevenue)}</DataCell>
-            <DataCell label="Sales (50%)" className="dc-right" style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(insuranceSplit(r.companyRevenue ?? 0).sales)}</DataCell>
+            <DataCell label="Wealth Manager (50%)" className="dc-right" style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(insuranceSplit(r.companyRevenue ?? 0).wealthManager)}</DataCell>
             <DataCell label="Note" className="dc-span" style={{ flex: 1.4, color: "#374151", fontSize: 12, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.note || "—"}</DataCell>
             <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
               <button className="ghost sm" onClick={() => setDeleteIns(r)}>Delete</button>
@@ -2126,7 +2132,7 @@ function TargetsView({
           </div>
         ))}
         {monthIns.length === 0 && (
-          <div style={S.empty}>No insurance revenue this month. Add the company amount — the salesperson's 50% is calculated automatically.</div>
+          <div style={S.empty}>No insurance revenue this month. Add the company amount — the Wealth Manager's 50% is calculated automatically.</div>
         )}
       </div>
 
@@ -2309,7 +2315,7 @@ function FinanceEntryModal({
         <Field label="Employee" required>
           <select className="sel" value={username} onChange={(e) => setUsername(e.target.value)} style={{ width: "100%" }}>
             {employees.map((e) => (
-              <option key={e.username} value={e.username}>{e.displayName} ({e.role})</option>
+              <option key={e.username} value={e.username}>{e.displayName} ({roleLabel(e.role)})</option>
             ))}
           </select>
         </Field>
@@ -2352,7 +2358,7 @@ function InsuranceRevenueModal({
   const [saving, setSaving] = useState(false);
 
   async function submit() {
-    if (!username) { setFormError("Pick the salesperson this revenue belongs to."); return; }
+    if (!username) { setFormError("Pick the Wealth Manager this revenue belongs to."); return; }
     const amount = Number(companyRevenue);
     if (!Number.isFinite(amount) || amount <= 0) { setFormError("Enter the company revenue amount in ₹."); return; }
     if (!earnedOn) { setFormError("Pick the date this revenue was earned."); return; }
@@ -2366,11 +2372,11 @@ function InsuranceRevenueModal({
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={(e) => e.stopPropagation()}>
         <div style={S.drawerName}>{entry ? "Edit insurance revenue" : "Add insurance revenue"}</div>
-        <div style={S.hint}>This is what the company earned. The salesperson's incentive is 50% of this amount.</div>
+        <div style={S.hint}>This is what the company earned. The Wealth Manager's incentive is 50% of this amount.</div>
         <Field label="Employee" required>
           <select className="sel" value={username} onChange={(e) => setUsername(e.target.value)} style={{ width: "100%" }}>
             {employees.map((e) => (
-              <option key={e.username} value={e.username}>{e.displayName} ({e.role})</option>
+              <option key={e.username} value={e.username}>{e.displayName} ({roleLabel(e.role)})</option>
             ))}
           </select>
         </Field>

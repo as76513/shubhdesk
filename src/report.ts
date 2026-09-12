@@ -55,7 +55,7 @@ export interface EmployeeReportRow {
   leadsSourced: number;
   dealsClosedCount: number;
   dealsClosedValue: number;
-  handoffsToRM: number;
+  ownerHandoffs: number;
   pipeline: Record<string, number>;
   closedTarget: number | null;
   closedActual: number;
@@ -68,8 +68,8 @@ export interface EmployeeReportRow {
 
 /**
  * Deals-closed timing uses Lead.closedAt (falls back to updatedAt for
- * rows closed before that field existed). Handoffs use handoffAt with
- * the same fallback.
+ * rows closed before that field existed). Owner handoffs use handoffAt
+ * with the same fallback.
  */
 export function buildEmployeeReport(
   leads: Lead[],
@@ -107,7 +107,7 @@ export function buildEmployeeReport(
       let leadsSourced = 0;
       let dealsClosedCount = 0;
       let dealsClosedValue = 0;
-      let handoffsToRM = 0;
+      let ownerHandoffs = 0;
 
       leads.forEach((l) => {
         if (l.sourcedBy === username && inRange(dateOf(l.createdAt))) {
@@ -122,7 +122,7 @@ export function buildEmployeeReport(
           }
         }
         if (l.sourcedBy === username && l.owner && l.owner !== l.sourcedBy && inRange(dateOf(l.handoffAt ?? l.updatedAt))) {
-          handoffsToRM++;
+          ownerHandoffs++;
         }
       });
 
@@ -139,7 +139,7 @@ export function buildEmployeeReport(
         leadsSourced,
         dealsClosedCount,
         dealsClosedValue,
-        handoffsToRM,
+        ownerHandoffs,
         pipeline,
         closedTarget,
         closedActual,
@@ -166,7 +166,7 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
     "Leads Sourced",
     "Deals Closed",
     "Deals Closed Value (INR)",
-    "Handoffs to RM",
+    "Owner Handoffs",
     "Closed Target",
     "Closed Actual",
     "Closed % Achieved",
@@ -183,7 +183,7 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
       r.leadsSourced,
       r.dealsClosedCount,
       r.dealsClosedValue,
-      r.handoffsToRM,
+      r.ownerHandoffs,
       r.closedTarget ?? "",
       r.closedActual,
       r.closedPct ?? "",
@@ -198,18 +198,18 @@ export function reportToCSV(rows: EmployeeReportRow[]): string {
   return lines.join("\n");
 }
 
-/** CSV of trades in a date range. Admin CSV includes company ₹ (brokerage − platform); no dealer payout. */
+/** CSV of trades in a date range. Admin CSV includes company ₹ (brokerage − platform); no advisor payout. */
 export function tradesToCSV(
   trades: Trade[],
   range: { start: string; end: string },
-  dealerName?: (username?: string | null) => string,
-  dealerOnly?: boolean
+  advisorName?: (username?: string | null) => string,
+  advisorOnly?: boolean
 ): string {
-  const header = dealerOnly
+  const header = advisorOnly
     ? ["Date", "Client Name", "Buying Lot", "Account Opened By", "Brokerage (INR)"]
     : [
         "Date",
-        "Dealer",
+        "Advisor",
         "Client Name",
         "Buying Lot",
         "Account Opened By",
@@ -228,14 +228,14 @@ export function tradesToCSV(
       const brokerage = t.brokerage ?? 0;
       const company = tradingSplit(brokerage).company;
       const opened = openedByOther(t)
-        ? (dealerName ? dealerName(t.accountOpenedBy) : (t.accountOpenedBy ?? ""))
+        ? (advisorName ? advisorName(t.accountOpenedBy) : (t.accountOpenedBy ?? ""))
         : "OWN";
       lines.push(
-        (dealerOnly
+        (advisorOnly
           ? [date, t.clientName, t.buyingLot ?? "", opened, brokerage]
           : [
               date,
-              dealerName ? dealerName(t.owner) : (t.owner ?? ""),
+              advisorName ? advisorName(t.owner) : (t.owner ?? ""),
               t.clientName,
               t.buyingLot ?? "",
               opened,

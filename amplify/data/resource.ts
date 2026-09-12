@@ -4,18 +4,18 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
  * ShubhDesk — Data model
  * ---------------------------------------------------------------
  * Pipeline: Lead + Note. Directory: StaffProfile. Codes: Counter.
- * Dealer log: Trade (standalone). Quotas: CompanyTarget (shared
- * individual numbers, one row per cadence) + Target (dealer weekly).
+ * Advisor log: Trade (standalone). Quotas: CompanyTarget (shared
+ * individual numbers, one row per cadence) + Target (advisor weekly).
  * Insurance company ₹: InsuranceRevenue (admin-entered).
  *
  * The ownership + read-only rules you asked for are enforced HERE,
  * on the server — not just hidden in the UI. That means even if
  * someone bypassed the app, Cognito + AppSync would still block a
- * salesman from editing a lead he has handed off.
+ * wealth manager from editing a lead whose ownership moved elsewhere.
  *
  * Ownership rule:
  *   - `owner`     = who currently controls the lead (auto-managed).
- *   - `sourcedBy` = the salesman who first created it (never changes).
+ *   - `sourcedBy` = who first created it (never changes).
  *
  * Joint Meeting records who the owner went on the call with
  * (`jointWith`) and where (`meetingLocation`). Owner does not change.
@@ -71,19 +71,18 @@ const schema = a.schema({
       // another month via Amplify's automatic updatedAt.
       closedAt: a.date(),
 
-      // Calendar date of the sales→RM handoff (YYYY-MM-DD). Set once
-      // when owner is reassigned into "joint_meeting". Report handoff
-      // counts use this instead of updatedAt for the same reason as
-      // closedAt.
+      // Calendar date of the first joint meeting (YYYY-MM-DD). Set once
+      // when the lead first enters "joint_meeting". Report counts use
+      // this instead of updatedAt for the same reason as closedAt.
       handoffAt: a.date(),
 
       // Who currently controls the lead. Amplify keeps this in sync
       // with the logged-in user identifier used by the owner rule.
       owner: a.string(),
 
-      // The salesman who originally created the lead. Set once, never
-      // reassigned — this is what preserves read-only visibility after
-      // handoff.
+      // The wealth manager/advisor who originally created the lead. Set
+      // once, never reassigned — this is what preserves read-only
+      // visibility if ownership is ever reassigned.
       sourcedBy: a.string(),
 
       // One Lead has many Note entries (the activity log).
@@ -98,26 +97,23 @@ const schema = a.schema({
       // `owner` field above, so ownership transfers with a field write.
       allow.ownerDefinedIn('owner'),
 
-      // Original salesman: READ-ONLY once handed off. This is a second
-      // owner-style rule bound to `sourcedBy`, narrowed to read only.
+      // Original owner: READ-ONLY if `owner` is ever reassigned. This is
+      // a second owner-style rule bound to `sourcedBy`, narrowed to read
+      // only.
       allow.ownerDefinedIn('sourcedBy').to(['read']),
-
-      // Any RM can read leads (so they see incoming handoffs on the
-      // board). Writes still require being the owner via the rule above.
-      allow.group('rm').to(['read']),
     ]),
 
   // Staff directory: maps a Cognito username to a display name and role.
-  // Lets the app show "Anita (RM)" on cards and populate the handoff
-  // dropdown without querying Cognito from the browser. Auto-created by
-  // the app on first login (see ensureOwnStaffProfile in leadClient.ts)
-  // if missing, using the user's email; admins can fix up displayName
-  // afterward via the Data manager.
+  // Lets the app show "Anita" on cards and populate people-pickers (joint
+  // meeting colleague, account opener) without querying Cognito from the
+  // browser. Auto-created by the app on first login (see
+  // ensureOwnStaffProfile in leadClient.ts) if missing, using the user's
+  // email; admins can fix up displayName afterward via the Data manager.
   StaffProfile: a
     .model({
       username: a.string().required(), // matches Cognito username
       displayName: a.string().required(),
-      role: a.enum(['admin', 'rm', 'sales', 'dealer']),
+      role: a.enum(['admin', 'wealth_manager', 'advisor']),
     })
     .authorization((allow) => [
       allow.group('admin'),
@@ -125,7 +121,7 @@ const schema = a.schema({
       // match their own identity) — this is what lets self-registration
       // work without granting broad write access to the directory.
       allow.ownerDefinedIn('username').to(['create', 'update']),
-      // Everyone can read the directory (needed for names + handoff list).
+      // Everyone can read the directory (needed for names + people-pickers).
       allow.authenticated().to(['read']),
     ]),
 
@@ -143,30 +139,30 @@ const schema = a.schema({
       allow.authenticated().to(['read', 'create', 'update']),
     ]),
 
-  // Dealer trade log. Deliberately standalone from Lead — dealers
-  // execute trades independently of the sales/RM pipeline, and this
+  // Advisor trade log. Deliberately standalone from Lead — advisors
+  // execute trades independently of the wealth-manager pipeline, and this
   // is intentionally a minimal 3-field record, not a cut-down Lead.
   Trade: a
     .model({
       clientName: a.string().required(),
-      buyingLot: a.string(),   // free text: instrument + quantity, dealer's own shorthand
+      buyingLot: a.string(),   // free text: instrument + quantity, advisor's own shorthand
       brokerage: a.integer(),  // brokerage earned on the trade, in rupees
-      owner: a.string(),       // the dealer who logged it
-      // Who opened the trading account: OWN or a sales/RM/admin username.
+      owner: a.string(),       // the advisor who logged it
+      // Who opened the trading account: OWN or a wealth manager/admin username.
       accountOpenedBy: a.string(),
     })
     .authorization((allow) => [
       allow.group('admin'),
-      // A dealer sees and manages only their own trades.
+      // An advisor sees and manages only their own trades.
       allow.ownerDefinedIn('owner'),
-      // Sales/RM named as Account Opened By can read those trades. No writes.
+      // Wealth managers named as Account Opened By can read those trades. No writes.
       allow.ownerDefinedIn('accountOpenedBy').to(['read']),
     ]),
 
   // Company-set individual quotas, one row per cadence. Same numbers
-  // for every sales/RM (not a team pool, not per-person rows). Do not
-  // rename this model — Amplify would create a new table and drop the
-  // three existing rows. If quotas ever need to differ by person, add
+  // for every wealth manager (not a team pool, not per-person rows). Do
+  // not rename this model — Amplify would create a new table and drop
+  // the three existing rows. If quotas ever need to differ by person, add
   // `username` to the identifier then; don't pre-split the table now.
   CompanyTarget: a
     .model({
@@ -186,8 +182,8 @@ const schema = a.schema({
     ]),
 
   // Legacy weekly per-employee goals (admin CSV Closed/Revenue Target).
-  // Not shown on dealer login — dealers have no revenue quota.
-  // Sales/RM now use CompanyTarget on their personal strip instead.
+  // Not shown on advisor login — advisors have no revenue quota.
+  // Wealth managers now use CompanyTarget on their personal strip instead.
   Target: a
     .model({
       username: a.string().required(), // Cognito username, same as Lead.owner
@@ -202,8 +198,8 @@ const schema = a.schema({
     ]),
 
   // Admin-entered company revenue for Insurance (Trading is derived from
-  // Trade.brokerage — do not duplicate it here). Salesperson incentive is
-  // 50% of companyRevenue, computed in src/revenue.ts, not stored.
+  // Trade.brokerage — do not duplicate it here). Wealth manager incentive
+  // is 50% of companyRevenue, computed in src/revenue.ts, not stored.
   InsuranceRevenue: a
     .model({
       username: a.string().required(), // employee this amount is attributed to
@@ -217,7 +213,7 @@ const schema = a.schema({
     ]),
 
   // Admin-entered AUM / company revenue / incentive. Replaces calculated
-  // dealer incentive and lead-value AUM on progress strips. Employees
+  // advisor incentive and lead-value AUM on progress strips. Employees
   // can read their own rows (username) so their month bar can show them.
   FinanceEntry: a
     .model({

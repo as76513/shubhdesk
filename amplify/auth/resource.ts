@@ -8,17 +8,17 @@ import { defineAuth } from '@aws-amplify/backend';
  * console and drop them into the right group. No self-signup.
  *
  * Groups:
- *   - sales  : telecaller / salesman (creates & works early-stage leads)
- *   - rm     : relationship manager (takes handoff, closes deals)
- *   - dealer : trade log plus the same Lead pipeline as sales
- *              (New Lead → Meeting → Joint Meeting → Deal Closed)
- *   - admin  : sees & edits everything
+ *   - wealth_manager : works a lead end-to-end, New Lead → Meeting →
+ *                      Joint Meeting → Deal Closed
+ *   - advisor        : trade log plus the same Lead pipeline as
+ *                      wealth_manager
+ *   - admin          : sees & edits everything
  */
 export const auth = defineAuth({
   loginWith: {
     email: true,
   },
-  groups: ['admin', 'rm', 'sales', 'dealer'],
+  groups: ['admin', 'wealth_manager', 'advisor'],
   // Only an admin can create accounts (no public sign-up in the app).
   accountRecovery: 'EMAIL_ONLY',
   userAttributes: {

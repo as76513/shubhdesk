@@ -10,7 +10,7 @@ Amplify Gen 2's `defineData` provisions AppSync + DynamoDB by default, and that 
 
 - **Scale-to-zero cost.** DynamoDB on-demand bills per request/GB; idle tables cost ~$0. A relational option (RDS/Aurora) has a baseline running-instance cost even with zero traffic.
 - **No server to run.** No instance, patching, or connection pooling.
-- **Native fit with the auth model.** The sales→RM handoff (`owner` / `sourcedBy` fields) depends on AppSync's owner-based authorization resolvers, which are generated for free from the schema — this is *why* the business logic lives in `amplify/data/resource.ts` and not just in the UI.
+- **Native fit with the auth model.** The owner/read-only visibility split (`owner` / `sourcedBy` fields) depends on AppSync's owner-based authorization resolvers, which are generated for free from the schema — this is *why* the business logic lives in `amplify/data/resource.ts` and not just in the UI.
 
 The trade-off: DynamoDB doesn't do ad-hoc joins or arbitrary `WHERE` filtering efficiently. You design around known **access patterns**, not around entity relationships. That trade-off is worth writing down here so future changes don't accidentally add a query DynamoDB is bad at.
 
@@ -24,8 +24,8 @@ Amplify Data maps each `a.model()` to its own DynamoDB table. Nine models → ni
 | `Note` | one item per activity-log entry | `id` (auto UUID) |
 | `StaffProfile` | one item per employee | `id` (auto UUID) |
 | `Counter` | one item per calendar month (`YYMM`) | `period` (custom key, via `.identifier(['period'])`) |
-| `Trade` | one item per dealer trade log entry | `id` (auto UUID) |
-| `CompanyTarget` | one quota row per cadence; applied as each sales/RM's individual target | `periodType` (`monthly` / `quarterly` / `yearly`) |
+| `Trade` | one item per advisor trade log entry | `id` (auto UUID) |
+| `CompanyTarget` | one quota row per cadence; applied as each Wealth Manager's individual target | `periodType` (`monthly` / `quarterly` / `yearly`) |
 | `Target` | one weekly target per employee (legacy, employee strip) | `username` + `weekStart` (composite, via `.identifier`) |
 | `InsuranceRevenue` | one admin-entered insurance company-revenue row | `id` (auto UUID) |
 | `FinanceEntry` | admin-entered AUM / company revenue / incentive | `id` (auto UUID); `kind` = `aum` / `revenue` / `incentive` |
@@ -37,7 +37,7 @@ Every lead ever created lives as a separate **item** inside the single `Lead` ta
 - `Note.leadId` + `Note.lead = a.belongsTo('Lead', 'leadId')`, mirrored by `Lead.notes = a.hasMany('Note', 'leadId')`.
 - This is the only real relationship in the schema. Amplify auto-creates a secondary index on `Note.leadId` to back it, so "all notes for this lead" (`listNotes(leadId)` in `src/leadClient.ts`) is an efficient indexed query, not a table scan.
 - Nothing else references anything else — `StaffProfile.username` and `Lead.owner`/`sourcedBy` are plain strings matched against the Cognito identity at the authorization layer, not a foreign key DynamoDB itself enforces.
-- `Trade` deliberately has **no** relationship to `Lead`, even though both ultimately trace back to a client — this was an explicit design choice (dealers work standalone from the sales pipeline), not an oversight. If that ever needs to change (e.g., linking a trade back to the lead that generated it), that's a new `leadId` field + `@belongsTo`/`@hasMany` pair, same pattern as `Note`. Do not add that unless the business asks; it is not a missing join.
+- `Trade` deliberately has **no** relationship to `Lead`, even though both ultimately trace back to a client — this was an explicit design choice (advisors work standalone from the pipeline), not an oversight. If that ever needs to change (e.g., linking a trade back to the lead that generated it), that's a new `leadId` field + `@belongsTo`/`@hasMany` pair, same pattern as `Note`. Do not add that unless the business asks; it is not a missing join.
 
 ## Dates that must not ride on `updatedAt`
 
@@ -46,17 +46,17 @@ Amplify stamps `createdAt` / `updatedAt` on every model. **Do not use `updatedAt
 | Field | When it is set | Used for |
 |---|---|---|
 | `Lead.closedAt` | `moveStage` into `closed` (cleared if it leaves closed) | monthly/quarter/year actuals, CSV deals-closed |
-| `Lead.handoffAt` | first sales→RM handoff | CSV handoff count |
-| `Lead.followUpOn` | admin/RM win-back date | Follow-ups Due view |
+| `Lead.handoffAt` | first entry into `joint_meeting` | CSV owner-handoff count |
+| `Lead.followUpOn` | admin/Wealth Manager win-back date | Follow-ups Due view |
 | `InsuranceRevenue.earnedOn` | admin-entered | insurance actuals |
 
 Rows closed before `closedAt` existed fall back to `updatedAt` in `closedOn()` (`src/revenue.ts`).
 
 ## CompanyTarget is a quota template, not a per-person table
 
-Three rows (`monthly` / `quarterly` / `yearly`). Every sales/RM is measured against those same numbers; actuals are filtered per person in the client. **Do not rename the model** (Amplify would provision a new table and leave the old rows behind). **Do not change `periodType` from string to enum** — it is the DynamoDB key; valid values are enforced in `upsertCompanyTarget`. If quotas ever need to differ by employee, that is a *new* identifier (`username` + `periodType`), a data backfill, and a UI to edit per person — not a silent tweak to the three existing rows.
+Three rows (`monthly` / `quarterly` / `yearly`). Every Wealth Manager is measured against those same numbers; actuals are filtered per person in the client. **Do not rename the model** (Amplify would provision a new table and leave the old rows behind). **Do not change `periodType` from string to enum** — it is the DynamoDB key; valid values are enforced in `upsertCompanyTarget`. If quotas ever need to differ by employee, that is a *new* identifier (`username` + `periodType`), a data backfill, and a UI to edit per person — not a silent tweak to the three existing rows.
 
-`Target` (weekly, per username) is still loaded for the admin employee CSV (Closed Target / Revenue Target columns). It is **not** shown on the dealer login — dealers have no revenue quota. Do not merge it into CompanyTarget.
+`Target` (weekly, per username) is still loaded for the admin employee CSV (Closed Target / Revenue Target columns). It is **not** shown on the advisor login — advisors have no revenue quota. Do not merge it into CompanyTarget.
 
 ## Access patterns (what the app actually queries)
 
@@ -67,31 +67,30 @@ Every read the app does, and whether it's an efficient indexed `Query` or a `Sca
 | `listLeads()` | all leads the caller is authorized to see (role filtering happens client-side in `App.tsx`'s `visibleLeads`) | Scan, **paginated** (`listAllPages`, 1000/page) |
 | `listNotes(leadId)` | notes for one lead | Scan + filter on `leadId` (GSI from `@belongsTo` exists; list still uses filter + pagination so deleteLead cannot miss notes past the first page) |
 | `listFollowUpsDue(asOf)` | leads with `followUpOn <= asOf` | Scan + filter — no index on `followUpOn`; paginated |
-| `listRMs()` | `StaffProfile` where `role = 'rm'` | Scan + filter — no index on `role`; paginated |
 | `listStaff()` | all staff | Scan; paginated |
 | `nextClientCode()` | get/update the `Counter` row for the current `period` | **Query/Get** by primary key — efficient by design |
-| `listTrades()` (`src/tradeClient.ts`) | trades the caller owns (dealer), opened (sales/RM via `accountOpenedBy`), or all (admin) | Scan; paginated; auth-filtered per item. The All Trades UI then sorts by `createdAt` **newest first** — do not assume DynamoDB list order is chronological. |
+| `listTrades()` (`src/tradeClient.ts`) | trades the caller owns (advisor), opened (Wealth Manager via `accountOpenedBy`), or all (admin) | Scan; paginated; auth-filtered per item. The All Trades UI then sorts by `createdAt` **newest first** — do not assume DynamoDB list order is chronological. |
 | `listTargets()` (`src/targetClient.ts`) | weekly targets the caller may see (own row for employees; all for admin) | Scan; paginated |
 | `listCompanyTargets()` (`src/targetClient.ts`) | the three cadence quota rows (monthly / quarterly / yearly) | Scan (3 rows); paginated |
 | `listInsuranceRevenue()` (`src/targetClient.ts`) | admin-entered insurance company revenue (own rows for employees; all for admin) | Scan; paginated |
 | `listFinanceEntries()` (`src/targetClient.ts`) | admin-entered AUM / revenue / incentive (own rows for employees; all for admin) | Scan; paginated |
 
-The two scan-and-filter patterns (`followUpOn`, `role`) are fine today: `StaffProfile` will only ever hold a handful of rows (team size), and `Lead` volume for a ~10-person team's pipeline is small. If lead volume ever grows into the thousands, the fix is a **GSI** on `followUpOn` (and possibly `stage`) so `listFollowUpsDue` becomes an indexed query instead of a full scan — not a schema rewrite, just an added index.
+The scan-and-filter pattern on `followUpOn` is fine today: `Lead` volume for a ~10-person team's pipeline is small. If lead volume ever grows into the thousands, the fix is a **GSI** on `followUpOn` (and possibly `stage`) so `listFollowUpsDue` becomes an indexed query instead of a full scan — not a schema rewrite, just an added index.
 
-**Not every new feature needs a new query.** The admin employee report (`src/report.ts`) needed leads-per-employee, deals-closed-per-employee, pipeline breakdown, weekly target vs actual, and incentive earned — all of that is computed client-side from the `leads`/`staff`/`targets`/`trades`/`insuranceRevenue` arrays `App.tsx` already has in state, with zero new backend aggregation. Reach for a new query (and think about whether it needs an index) only when the data isn't already loaded on the page doing the aggregating. The Dealer Brokerage summary (per-day total + per-dealer breakdown in `TradesView`) is the same idea applied to `Trade`: it's a `useMemo` over whatever `listTrades()` already returned, not a new backend aggregation query.
+**Not every new feature needs a new query.** The admin employee report (`src/report.ts`) needed leads-per-employee, deals-closed-per-employee, pipeline breakdown, weekly target vs actual, and incentive earned — all of that is computed client-side from the `leads`/`staff`/`targets`/`trades`/`insuranceRevenue` arrays `App.tsx` already has in state, with zero new backend aggregation. Reach for a new query (and think about whether it needs an index) only when the data isn't already loaded on the page doing the aggregating. The Advisor Brokerage summary (per-day total + per-advisor breakdown in `TradesView`) is the same idea applied to `Trade`: it's a `useMemo` over whatever `listTrades()` already returned, not a new backend aggregation query.
 
-Trading split helpers may still exist in `src/revenue.ts` but are **not used** on Trades, the stat bar, month incentive, or the employee CSV. Payouts are admin-entered on Targets (`FinanceEntry`). Insurance salesperson = 50% of admin-entered company revenue (Targets insurance list only). NCA / AUM / SIP / Insurance period actuals are also in that file — see README. Do not use `Lead.value` as trading “actual” for incentive.
+Trading split helpers may still exist in `src/revenue.ts` but are **not used** on the stat bar or employee CSV. Payouts are admin-entered on Targets (`FinanceEntry`). Insurance Wealth Manager share = 50% of admin-entered company revenue (Targets insurance list only). NCA / AUM / SIP / Insurance period actuals are also in that file — see README. Do not use `Lead.value` as trading “actual” for incentive.
 
 ## Authorization is part of the schema design, not bolted on after
 
 Each model's `.authorization((allow) => [...])` block *is* the access-pattern design for who can touch which rows:
 
-- **`Lead`**: `allow.group('admin')` (full control) + `allow.ownerDefinedIn('owner')` (full control for whoever currently owns it) + `allow.ownerDefinedIn('sourcedBy').to(['read'])` (permanent read-only for the original salesman after handoff) + `allow.group('rm').to(['read'])` (any RM can see incoming leads on the board). Live `stage` values are `new` / `meeting` / `joint_meeting` / `closed`. Do **not** remove `followup` / `inprogress` / `rejected` from the GraphQL enum — existing items still hold those values and AppSync would fail to read them. Joint Meeting stores `jointWith` (colleague username) and `meetingLocation`; owner does not change. `Lead.email` is optional.
-- **`StaffProfile`**: `allow.group('admin')` for full writes, `allow.ownerDefinedIn('username').to(['create','update'])` so a user can create/update *only the row matching their own identity* (this is what lets `ensureOwnStaffProfile()` self-register a row on first login without needing admin-only write access), and `allow.authenticated().to(['read'])` for everyone (needed to resolve display names and populate the RM dropdown). Note this is the one model where the "owner" field (`username`) isn't `owner`/`sourcedBy` by name — `ownerDefinedIn` just needs *a* field that equals the caller's identity, whatever it's called.
+- **`Lead`**: `allow.group('admin')` (full control) + `allow.ownerDefinedIn('owner')` (full control for whoever currently owns it) + `allow.ownerDefinedIn('sourcedBy').to(['read'])` (permanent read-only for the original sourcer if ownership is ever reassigned). Live `stage` values are `new` / `meeting` / `joint_meeting` / `closed`. Do **not** remove `followup` / `inprogress` / `rejected` from the GraphQL enum — existing items still hold those values and AppSync would fail to read them. Joint Meeting stores `jointWith` (colleague username) and `meetingLocation`; owner does not change. `Lead.email` is optional.
+- **`StaffProfile`**: `allow.group('admin')` for full writes, `allow.ownerDefinedIn('username').to(['create','update'])` so a user can create/update *only the row matching their own identity* (this is what lets `ensureOwnStaffProfile()` self-register a row on first login without needing admin-only write access), and `allow.authenticated().to(['read'])` for everyone (needed to resolve display names and populate people-pickers). Note this is the one model where the "owner" field (`username`) isn't `owner`/`sourcedBy` by name — `ownerDefinedIn` just needs *a* field that equals the caller's identity, whatever it's called.
 - **`Counter`**: `allow.group('admin')` for writes, `allow.authenticated().to(['read','create','update'])` for everyone (any staff member creating a lead needs to bump the sequence).
 - **`Note`**: `allow.group('admin')` + `allow.authenticated().to(['read','create'])` (notes are cheap and shared; the sensitive control point is `Lead`, not `Note`).
-- **`Trade`**: `allow.group('admin')` + `allow.ownerDefinedIn('owner')` + `allow.ownerDefinedIn('accountOpenedBy').to(['read'])`. A dealer manages only their own trades. Sales/RM named as Account Opened By can **read** those trades but cannot edit them. `accountOpenedBy` is stored as `OWN` or a sales/RM/admin Cognito username. Persist `OWN`; do not send `null` on update.
-- **`CompanyTarget`**: `allow.group('admin')` full control + `allow.authenticated().to(['read'])`. Identifier is `periodType` — three rows total. Same quota numbers for every sales/RM (individual, not a team pool). Valid `periodType` values enforced in `upsertCompanyTarget`, not as a GraphQL enum on the key.
+- **`Trade`**: `allow.group('admin')` + `allow.ownerDefinedIn('owner')` + `allow.ownerDefinedIn('accountOpenedBy').to(['read'])`. An advisor manages only their own trades. Wealth managers named as Account Opened By can **read** those trades but cannot edit them. `accountOpenedBy` is stored as `OWN` or a wealth manager/admin Cognito username. Persist `OWN`; do not send `null` on update.
+- **`CompanyTarget`**: `allow.group('admin')` full control + `allow.authenticated().to(['read'])`. Identifier is `periodType` — three rows total. Same quota numbers for every Wealth Manager (individual, not a team pool). Valid `periodType` values enforced in `upsertCompanyTarget`, not as a GraphQL enum on the key.
 - **`Target`**: `allow.group('admin')` full control + `allow.ownerDefinedIn('username').to(['read'])`. Composite identifier `['username', 'weekStart']` so saving the same employee+week is an update, not a second row. Legacy weekly employee strip.
 - **`InsuranceRevenue`**: same auth as Target (admin writes, employee reads own). Trading revenue is **not** stored here — it is derived from `Trade.brokerage` in `src/revenue.ts`. Only Insurance needs a manual company-revenue amount.
 

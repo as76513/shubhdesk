@@ -9,7 +9,7 @@ Everything here stays within free tier for under 10 users.
 ## What you're deploying
 
 - **Frontend:** the React app (the prototype, wired to the backend)
-- **Auth:** Cognito user pool with `admin` / `rm` / `sales` / `dealer` groups
+- **Auth:** Cognito user pool with `admin` / `wealth_manager` / `advisor` groups
 - **Data:** DynamoDB tables for `Lead`, `Note`, `StaffProfile`, `Counter`,
   `Trade`, `CompanyTarget`, `Target`, and `InsuranceRevenue`, behind AppSync
 - **Hosting + SSL + domain:** all handled by Amplify Hosting
@@ -66,12 +66,12 @@ hand. Copy these files into your project's `src/`:
   (`<Authenticator hideSignUp>`), themed navy/gold.
 - `src/App.tsx` — the full app: loads leads from the backend, reads the
   signed-in user's role from their Cognito group, and calls the data
-  client for every action. Includes loading and error states. Dealers
-  see the same pipeline as sales plus a Trades tab; admin also has
-  Targets. Layout stacks on phones (≤720px). Deletes (lead, trade,
+  client for every action. Includes loading and error states. Advisors
+  see the same pipeline as Wealth Manager plus a Trades tab; admin also
+  has Targets. Layout stacks on phones (≤720px). Deletes (lead, trade,
   insurance) always ask for confirmation.
 - `src/leadClient.ts` — Lead / Note / Staff / Counter (list, create,
-  move/handoff, notes, follow-ups, staff directory, lead delete).
+  move stage, notes, follow-ups, staff directory, lead delete).
 - `src/tradeClient.ts` — Trade CRUD.
 - `src/targetClient.ts` — CompanyTarget, weekly Target, InsuranceRevenue.
 - `src/revenue.ts` — NCA / AUM / SIP / Insurance actuals and trading splits.
@@ -94,13 +94,13 @@ exists.
 ## Step 4 — Add your staff (20 min)
 
 Two small things per employee: a **login** (Cognito) and a **profile
-row** (so the app can show their name and list RMs for handoff).
+row** (so the app can show their name in people-pickers).
 
 **4a. Cognito login.** In the Amplify console → **Authentication** →
 **Users**, for each of your ~8 people:
 
 1. Create the user with their email.
-2. Add them to one group: `sales`, `rm`, `dealer`, or `admin`.
+2. Add them to one group: `wealth_manager`, `advisor`, or `admin`.
 
 Cognito emails them an invite — no passwords to manage by hand.
 
@@ -114,11 +114,11 @@ If you want a nicer name than the auto-generated one, edit the row
 afterward in the Amplify console → **Data manager**:
 
 - `username` — must match their Cognito username exactly (not their email)
-- `displayName` — e.g. "Anita Desai (RM)"
-- `role` — `sales`, `rm`, `dealer`, or `admin`
+- `displayName` — e.g. "Anita Desai"
+- `role` — `wealth_manager`, `advisor`, or `admin`
 
 This directory is what turns usernames into friendly names on cards and
-populates the "Hand off to RM" dropdown.
+populates the people-pickers (joint meeting colleague, account opener).
 
 ---
 
@@ -194,7 +194,7 @@ and build-minute overages — realistically a few rupees a month.
 |-----|------|
 | 1 | Steps 1–2: repo, scaffold, sandbox running |
 | 2–3 | Step 3: wire frontend to backend, test all flows |
-| 4 | Step 4: add staff, test roles & handoff end to end |
+| 4 | Step 4: add staff, test roles end to end |
 | 5 | Step 5: deploy to Amplify Hosting |
 | 6 | Step 6: GoDaddy domain + SSL |
 | 7 | Buffer: real-device testing on phones + desktops, fixes |
