@@ -37,19 +37,18 @@ const authServices = {
   },
 };
 
+const usernameField = {
+  label: "Username",
+  placeholder: "amol.shinde",
+  // Pool is email-login, so Authenticator defaults this to type=email and
+  // the browser refuses `amol.shinde` before handleSignIn can append the domain.
+  type: "text" as const,
+  autocomplete: "username",
+};
+
 const formFields = {
-  signIn: {
-    username: {
-      label: "Username",
-      placeholder: "amol.shinde",
-    },
-  },
-  forgotPassword: {
-    username: {
-      label: "Username",
-      placeholder: "amol.shinde",
-    },
-  },
+  signIn: { username: usernameField },
+  forgotPassword: { username: usernameField },
 };
 
 /**
