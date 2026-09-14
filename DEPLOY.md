@@ -103,6 +103,9 @@ row** (so the app can show their name in people-pickers).
 2. Add them to one group: `wealth_manager`, `advisor`, or `admin`.
 
 Cognito emails them an invite — no passwords to manage by hand.
+Staff sign in with the first part of that email (`amol.shinde`); the
+app appends `@shubhshreeknowledgehub.com` before talking to Cognito.
+A full email still works.
 
 **4b. Staff profile (usually automatic).** The app creates a
 `StaffProfile` row for each person the first time they log in, using
