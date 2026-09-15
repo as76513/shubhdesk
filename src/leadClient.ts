@@ -39,6 +39,14 @@ const JOINT_STAGE = 'joint_meeting';
 
 export type Role = 'admin' | 'wealth_manager' | 'advisor';
 
+/** Map leftover StaffProfile.role values from before the group rename. */
+export function liveStaffRole(role?: string | null): Role | undefined {
+  if (role === 'sales' || role === 'rm') return 'wealth_manager';
+  if (role === 'dealer') return 'advisor';
+  if (role === 'admin' || role === 'wealth_manager' || role === 'advisor') return role;
+  return undefined;
+}
+
 /** The signed-in user's id, display name, and role (from Cognito group). */
 export async function getMe(): Promise<{
   username: string;
@@ -68,9 +76,13 @@ export async function getMe(): Promise<{
 
 /** All staff profiles, to resolve usernames -> display names on cards. */
 export async function listStaff() {
-  return listAllPages((nextToken) =>
+  const rows = await listAllPages((nextToken) =>
     client.models.StaffProfile.list({ limit: 1000, nextToken })
   );
+  return rows.map((r) => {
+    const live = liveStaffRole(r.role);
+    return live && live !== r.role ? { ...r, role: live } : r;
+  });
 }
 
 /**

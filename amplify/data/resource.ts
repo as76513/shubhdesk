@@ -113,7 +113,11 @@ const schema = a.schema({
     .model({
       username: a.string().required(), // matches Cognito username
       displayName: a.string().required(),
-      role: a.enum(['admin', 'wealth_manager', 'advisor']),
+      // Live roles: admin / wealth_manager / advisor.
+      // sales / rm / dealer stay so existing DynamoDB rows still read;
+      // AppSync rejects the whole listStaff query if any item has an
+      // enum value that is not listed here.
+      role: a.enum(['admin', 'wealth_manager', 'advisor', 'sales', 'rm', 'dealer']),
     })
     .authorization((allow) => [
       allow.group('admin'),

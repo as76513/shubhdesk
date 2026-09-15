@@ -133,6 +133,9 @@ const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
   wealth_manager: "Wealth Manager",
   advisor: "Advisor",
+  sales: "Wealth Manager",
+  rm: "Wealth Manager",
+  dealer: "Advisor",
 };
 const roleLabel = (role?: string | null) => (role ? ROLE_LABELS[role] ?? role : role);
 const stageOf = (id?: string | null) => {
