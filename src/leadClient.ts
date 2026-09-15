@@ -43,14 +43,13 @@ function titlePart(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
-/** "tejasvi.dhumal" / email → "Tejasvi - Dhumal". Already "First - Last" is left as-is. */
+/** "tejasvi.dhumal" / "Tejasvi - Dhumal" / email → "Tejasvi Dhumal". */
 export function personListName(displayName?: string | null, email?: string | null): string {
   const raw = (email?.split('@')[0] || displayName || '').trim();
   if (!raw) return '—';
-  if (/\s-\s/.test(raw)) return raw;
-  const parts = raw.split(/[._]+/).filter(Boolean);
+  const parts = raw.split(/[\s._-]+/).filter(Boolean);
   if (parts.length >= 2) {
-    return `${titlePart(parts[0])} - ${parts.slice(1).map(titlePart).join(' ')}`;
+    return `${titlePart(parts[0])} ${parts.slice(1).map(titlePart).join(' ')}`;
   }
   return titlePart(parts[0]);
 }
