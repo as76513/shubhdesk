@@ -39,12 +39,40 @@ const JOINT_STAGE = 'joint_meeting';
 
 export type Role = 'admin' | 'wealth_manager' | 'advisor';
 
+function titlePart(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+/** "tejasvi.dhumal" / email → "Tejasvi - Dhumal". Already "First - Last" is left as-is. */
+export function personListName(displayName?: string | null, email?: string | null): string {
+  const raw = (email?.split('@')[0] || displayName || '').trim();
+  if (!raw) return '—';
+  if (/\s-\s/.test(raw)) return raw;
+  const parts = raw.split(/[._]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${titlePart(parts[0])} - ${parts.slice(1).map(titlePart).join(' ')}`;
+  }
+  return titlePart(parts[0]);
+}
+
 /** Map leftover StaffProfile.role values from before the group rename. */
 export function liveStaffRole(role?: string | null): Role | undefined {
   if (role === 'sales' || role === 'rm') return 'wealth_manager';
   if (role === 'dealer') return 'advisor';
   if (role === 'admin' || role === 'wealth_manager' || role === 'advisor') return role;
   return undefined;
+}
+
+export function isShubhshreeAdmin(staff: { displayName?: string | null; role?: string | null }): boolean {
+  const name = (staff.displayName ?? '').trim();
+  return name === 'Admin' || /shubhshree\.admin/i.test(name);
+}
+
+/** Live colleagues for Joint Meeting — current Cognito staff only, not leftover test rows. */
+export function isJointMeetingColleague(staff: { role?: string | null; displayName?: string | null }): boolean {
+  if (isShubhshreeAdmin(staff)) return false;
+  const role = staff.role;
+  return role === 'wealth_manager' || role === 'advisor' || role === 'admin';
 }
 
 /** The signed-in user's id, display name, and role (from Cognito group). */
@@ -76,13 +104,9 @@ export async function getMe(): Promise<{
 
 /** All staff profiles, to resolve usernames -> display names on cards. */
 export async function listStaff() {
-  const rows = await listAllPages((nextToken) =>
+  return listAllPages((nextToken) =>
     client.models.StaffProfile.list({ limit: 1000, nextToken })
   );
-  return rows.map((r) => {
-    const live = liveStaffRole(r.role);
-    return live && live !== r.role ? { ...r, role: live } : r;
-  });
 }
 
 /**
@@ -99,29 +123,28 @@ export async function ensureOwnStaffProfile(role: Role) {
     filter: { username: { eq: user.username } },
   });
   if (errors) throw errors;
+  let fromEmail: string | undefined;
+  try {
+    const attrs = await fetchUserAttributes();
+    fromEmail = attrs.email;
+  } catch {
+    /* fall back below */
+  }
+  const displayName = personListName(undefined, fromEmail) !== '—'
+    ? personListName(undefined, fromEmail)
+    : user.username;
+
   if (existing.length > 0) {
     const row = existing[0];
-    // Cognito group is the source of truth; keep StaffProfile.role in
-    // sync so target strips and people-pickers don't use a stale role
-    // after someone is moved between groups.
-    if (row && row.role !== role) {
-      const { data, errors: updateErrors } = await client.models.StaffProfile.update({
-        id: row.id,
-        role,
-      });
+    const patch: { id: string; role?: Role; displayName?: string } = { id: row.id };
+    if (row && row.role !== role) patch.role = role;
+    if (row && fromEmail && row.displayName !== displayName) patch.displayName = displayName;
+    if (patch.role || patch.displayName) {
+      const { data, errors: updateErrors } = await client.models.StaffProfile.update(patch);
       if (updateErrors) throw updateErrors;
       return data;
     }
     return row;
-  }
-
-  let displayName = user.username;
-  try {
-    const attrs = await fetchUserAttributes();
-    if (attrs.email) displayName = attrs.email.split('@')[0];
-    else if (attrs.preferred_username) displayName = attrs.preferred_username;
-  } catch {
-    /* fall back to username */
   }
 
   const { data, errors: createErrors } = await client.models.StaffProfile.create({

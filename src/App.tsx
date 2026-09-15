@@ -24,6 +24,8 @@ import {
   listNotes,
   deleteLead as apiDeleteLead,
   friendlyError,
+  personListName,
+  isJointMeetingColleague,
   type Role,
 } from "./leadClient";
 import { buildEmployeeReport, reportToCSV, tradesToCSV, downloadCSV, type ReportPeriod } from "./report";
@@ -211,8 +213,11 @@ export default function App() {
 
   // Resolve a username to a display name via the staff directory.
   const nameOf = useCallback(
-    (username?: string | null) =>
-      staff.find((s: Staff) => s.username === username)?.displayName ?? username ?? "—",
+    (username?: string | null) => {
+      const row = staff.find((s: Staff) => s.username === username);
+      if (!row) return username ?? "—";
+      return personListName(row.displayName);
+    },
     [staff]
   );
 
@@ -2471,7 +2476,10 @@ function ReportButton({
 }
 
 function colleaguesOf(staff: Staff[], meUsername?: string) {
-  return staff.filter((s) => s.username && s.username !== meUsername);
+  return staff
+    .filter((s) => s.username && s.username !== meUsername && isJointMeetingColleague(s))
+    .slice()
+    .sort((a, b) => personListName(a.displayName).localeCompare(personListName(b.displayName)));
 }
 
 function JointMeetingPrompt({
@@ -2514,7 +2522,7 @@ function JointMeetingPrompt({
           <select className="sel" value={jointWith} onChange={(e) => setJointWith(e.target.value)} style={{ width: "100%" }}>
             <option value="">— Select colleague —</option>
             {others.map((s) => (
-              <option key={s.username} value={s.username}>{s.displayName}</option>
+              <option key={s.username} value={s.username}>{personListName(s.displayName)}</option>
             ))}
           </select>
         </Field>
@@ -2591,7 +2599,7 @@ function NewLeadButton({
               <select className="sel" value={form.jointWith} onChange={(e) => setForm({ ...form, jointWith: e.target.value })} style={{ width: "100%" }}>
                 <option value="">— None (New Lead) —</option>
                 {others.map((s) => (
-                  <option key={s.username} value={s.username}>{s.displayName}</option>
+                  <option key={s.username} value={s.username}>{personListName(s.displayName)}</option>
                 ))}
               </select>
             </Field>
