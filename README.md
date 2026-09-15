@@ -270,8 +270,8 @@ move the win into another month.
 
 ### NCA (new client acquisition)
 
-Count of **closed leads of any service** (Trading, SIP, Insurance,
-Loans) in the period.
+Count of **closed leads of any service** (Investment, Trading, Both,
+SIP, Insurance, Loans) in the period.
 
 | View | What is counted |
 |---|---|

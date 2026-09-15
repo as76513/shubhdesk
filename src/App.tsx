@@ -106,7 +106,16 @@ const LEGACY_STAGES: Record<string, { label: string; color: string }> = {
   inprogress: { label: "Deal In Progress", color: "#EAB308" },
   rejected: { label: "Deal Rejected", color: "#DC2626" },
 };
-const SERVICES = ["Trading", "SIP", "Insurance", "Loans"] as const;
+const SERVICES = [
+  { id: "Investment", label: "Investment" },
+  { id: "Trading", label: "Trading" },
+  { id: "Both", label: "Both (Investment + Trading)" },
+  { id: "SIP", label: "SIP" },
+  { id: "Insurance", label: "Insurance" },
+  { id: "Loans", label: "Loans" },
+] as const;
+const serviceLabel = (id?: string | null) =>
+  SERVICES.find((s) => s.id === id)?.label ?? id ?? "";
 const JOINT_STAGE = "joint_meeting";
 
 const SOURCES = [
@@ -712,7 +721,7 @@ export default function App() {
             {view !== "trades" && view !== "targets" && (
               <select value={filterService} onChange={(e) => setFilterService(e.target.value)} className="sel">
                 <option>All</option>
-                {SERVICES.map((s) => <option key={s}>{s}</option>)}
+                {SERVICES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             )}
             {me?.role === "admin" && view !== "trades" && (
@@ -1246,7 +1255,7 @@ function LeadCardVisual({ lead, nameOf, draggable, dragging }: {
         <span style={S.cardValue}>{rupee(lead.value)}</span>
       </div>
       <div style={S.cardMeta}>
-        <span style={{ ...S.serviceTag, background: st.color + "1A", color: st.color, flexShrink: 0 }}>{lead.service}</span>
+        <span style={{ ...S.serviceTag, background: st.color + "1A", color: st.color, flexShrink: 0 }}>{serviceLabel(lead.service)}</span>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, marginLeft: 6 }}>
           {lead.stage === "rejected" && lead.rejectionReason
             ? reasonOf(lead.rejectionReason)
@@ -1282,7 +1291,7 @@ function ListView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => void 
               <div style={{ ...S.cardName, whiteSpace: "normal" }}>{l.client}</div>
               <div style={S.rowPhone}>{l.phone}</div>
             </DataCell>
-            <DataCell label="Service" style={{ flex: 1 }}><span style={{ ...S.serviceTag, background: "#FBF3DC", color: "#8A6A1C" }}>{l.service}</span></DataCell>
+            <DataCell label="Service" style={{ flex: 1 }}><span style={{ ...S.serviceTag, background: "#FBF3DC", color: "#8A6A1C" }}>{serviceLabel(l.service)}</span></DataCell>
             <DataCell label="Stage" style={{ flex: 1 }}><span style={{ ...S.stagePill, background: st.color }}>{st.label}</span></DataCell>
             <DataCell label="Value" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(l.value)}</DataCell>
           </div>
@@ -1369,7 +1378,7 @@ function LeadDrawer({
           <div>
             <div style={S.codeChip}>{lead.clientCode}</div>
             <div style={S.drawerName}>{lead.client}</div>
-            <div style={S.rowPhone}>{lead.phone} · {lead.service}</div>
+            <div style={S.rowPhone}>{lead.phone} · {serviceLabel(lead.service)}</div>
             <div style={S.ownerLine}>
               Owner: <b>{nameOf(lead.owner)}</b>
               {lead.sourcedBy !== lead.owner && <span> · sourced by {nameOf(lead.sourcedBy).split(" ")[0]}</span>}
@@ -2529,7 +2538,7 @@ function NewLeadButton({
   staff: Staff[];
   meUsername?: string;
 }) {
-  const empty = { client: "", phone: "", requirements: "", service: "SIP", value: "", source: "cold_call", meetingLocation: "", jointWith: "" };
+  const empty = { client: "", phone: "", requirements: "", service: "Investment", value: "", source: "cold_call", meetingLocation: "", jointWith: "" };
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -2591,7 +2600,7 @@ function NewLeadButton({
             </Field>
             <Field label="Service">
               <select className="sel" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} style={{ width: "100%" }}>
-                {SERVICES.map((s) => <option key={s}>{s}</option>)}
+                {SERVICES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </Field>
             <Field label="Source">

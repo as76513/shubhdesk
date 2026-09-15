@@ -167,7 +167,7 @@ export async function createLead(input: {
   client: string;
   phone?: string;
   requirements?: string;
-  service: 'Trading' | 'SIP' | 'Insurance' | 'Loans';
+  service: 'Investment' | 'Trading' | 'Both' | 'SIP' | 'Insurance' | 'Loans';
   value?: number;
   source?: 'cold_call' | 'referral' | 'walk_in' | 'existing_client' | 'digital' | 'other';
   meetingLocation?: string;

@@ -37,7 +37,14 @@ const schema = a.schema({
       jointWith: a.string(),
 
       // --- Pipeline ---
-      service: a.enum(['Trading', 'SIP', 'Insurance', 'Loans']),
+      service: a.enum([
+        'Investment',
+        'Trading',
+        'Both',
+        'SIP',
+        'Insurance',
+        'Loans',
+      ]),
       // Live pipeline: new → meeting → joint_meeting → closed.
       // followup / inprogress / rejected stay in the enum so existing
       // DynamoDB items still read; they are not board stages.
