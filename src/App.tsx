@@ -76,8 +76,6 @@ import {
   tradePeriodRange,
   sumBrokerage,
   inDateRange,
-  toISODateLocal,
-  formatMonthLabel,
   type TradePeriod,
 } from "./revenue";
 import type { Schema } from "../amplify/data/resource";
@@ -138,6 +136,13 @@ const ROLE_LABELS: Record<string, string> = {
   dealer: "Advisor",
 };
 const roleLabel = (role?: string | null) => (role ? ROLE_LABELS[role] ?? role : role);
+/** First name for the hello line — "Shubham", or "amol.shinde" → "Amol". */
+function helloName(displayName: string) {
+  const raw = displayName.includes("@") ? displayName.split("@")[0] : displayName.trim();
+  const first = (raw.split(/[.\s_-]+/)[0] || raw).trim();
+  if (!first) return displayName;
+  return first.charAt(0).toUpperCase() + first.slice(1);
+}
 const stageOf = (id?: string | null) => {
   const live = STAGES.find((s) => s.id === id);
   if (live) return live;
@@ -315,12 +320,7 @@ export default function App() {
     };
   }, [visibleLeads]);
 
-  const monthBrokerage = useMemo(() => {
-    const { start, end } = monthBounds();
-    return trades
-      .filter((t) => inDateRange(t.createdAt, start, end))
-      .reduce((s, t) => s + (t.brokerage ?? 0), 0);
-  }, [trades]);
+  const allTimeBrokerage = useMemo(() => sumBrokerage(trades), [trades]);
 
   const viewMonthRange = useMemo(
     () => monthBounds(parseISODate(viewMonth)),
@@ -654,7 +654,12 @@ export default function App() {
           </div>
         )}
 
-        <StatBar stats={stats} revenue={monthRevenue} totalBrokerage={me?.role === "admin" ? monthBrokerage : undefined} />
+        {me && (
+          <div className="helloLine">
+            Hello {helloName(me.displayName)} 👋
+          </div>
+        )}
+        <StatBar stats={stats} revenue={monthRevenue} totalBrokerage={me?.role === "admin" ? allTimeBrokerage : undefined} />
         {me?.role === "admin" ? (
           view !== "trades" && view !== "targets" ? (
             <>
@@ -858,7 +863,7 @@ function StatBar({ stats, revenue, totalBrokerage }: { stats: any; revenue?: num
     { label: "Closed Won", value: stats.closed },
     { label: "Revenue", value: rupee(revenue ?? 0) },
     ...(totalBrokerage != null
-      ? [{ label: `Total Brokerage (${formatMonthLabel(toISODateLocal())})`, value: rupee(totalBrokerage) }]
+      ? [{ label: "Total Brokerage (till date)", value: rupee(totalBrokerage) }]
       : []),
   ];
   return (
@@ -2701,6 +2706,7 @@ const CSS = `
   * { box-sizing: border-box; }
   html, body, #root { max-width: 100%; overflow-x: hidden; }
   ::selection { background: rgba(224,170,61,.35); }
+  .helloLine { text-align: center; font-weight: 800; font-size: 28px; line-height: 1.25; color: #07163F; margin: 2px 0 16px; letter-spacing: -0.3px; }
   .tab { border: none; background: transparent; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #6B7280; cursor: pointer; transition: background .12s ease, color .12s ease; white-space: nowrap; }
   .tab:hover { color: #07163F; }
   .tab.active { background: #fff; color: #07163F; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
@@ -2759,6 +2765,7 @@ const CSS = `
     .whoami { max-width: 58vw; }
     .whoamiText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .appBody { padding: 12px 12px 28px !important; }
+    .helloLine { font-size: 22px; margin-bottom: 12px; }
     .statBar { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
     .stackStrip { grid-template-columns: 1fr; }
     .metricsGrid { grid-template-columns: 1fr; }
