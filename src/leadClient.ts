@@ -194,6 +194,7 @@ export async function createLead(input: {
   source?: 'cold_call' | 'referral' | 'walk_in' | 'existing_client' | 'digital' | 'other';
   meetingLocation?: string;
   jointWith?: string;
+  followUpOn?: string;
 }) {
   const me = await getCurrentUser();
   const clientCode = await nextClientCode();
@@ -208,6 +209,7 @@ export async function createLead(input: {
     source: input.source,
     meetingLocation: meetingLocation || undefined,
     jointWith: jointWith || undefined,
+    followUpOn: input.followUpOn || undefined,
     clientCode,
     stage: jointWith ? 'joint_meeting' : 'new',
     owner: me.username,

@@ -102,11 +102,11 @@ const STAGES = [
   { id: "meeting", label: "Meeting", color: "#8B5CF6" },
   { id: "joint_meeting", label: "Joint Meeting", color: "#0EA5E9" },
   { id: "closed", label: "Deal Closed", color: "#15803D" },
+  { id: "rejected", label: "Deal Rejected", color: "#DC2626" },
 ];
 const LEGACY_STAGES: Record<string, { label: string; color: string }> = {
   followup: { label: "Follow-up", color: "#F59E0B" },
   inprogress: { label: "Deal In Progress", color: "#EAB308" },
-  rejected: { label: "Deal Rejected", color: "#DC2626" },
 };
 const SERVICES = [
   { id: "Investment", label: "Investment" },
@@ -161,7 +161,7 @@ const stageOf = (id?: string | null) => {
   return STAGES[0];
 };
 // Old follow-up / in-progress rows still exist; show them on Joint Meeting
-// so they don't vanish from the board. Rejected stays off the board.
+// so they don't vanish from the board.
 const boardStageId = (stage?: string | null) =>
   stage === "followup" || stage === "inprogress" ? "joint_meeting" : (stage ?? "new");
 
@@ -1446,12 +1446,30 @@ function LeadDrawer({
             </span>
           </div>
           <div style={S.detailRow}><span style={S.detailKey}>Wants</span><span style={{ textAlign: "right", maxWidth: 260 }}>{lead.requirements || "—"}</span></div>
-          <div style={S.detailRow}>
-            <span style={S.detailKey}>Follow-up</span>
-            <span style={{ color: followUpDay(lead.followUpOn) && followUpDay(lead.followUpOn) <= todayISO() ? "#B45309" : undefined, fontWeight: 600 }}>
-              {followUpDay(lead.followUpOn) ? followUpLabel(lead.followUpOn) : "—"}
-            </span>
-          </div>
+        </div>
+
+        <div style={S.drawerSection}>
+          <Field label="Follow-up date">
+            {canEdit ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="date"
+                  className="ninput"
+                  value={followUpDay(lead.followUpOn)}
+                  onChange={(e) => onFollowUp(lead.id, e.target.value)}
+                  style={{ flex: 1, maxWidth: "none" }}
+                />
+                {followUpDay(lead.followUpOn) && (
+                  <button className="ghost" onClick={() => onFollowUp(lead.id, "")}>Clear</button>
+                )}
+              </div>
+            ) : (
+              <div style={{ ...S.rowPhone, marginTop: 0, fontWeight: 600, color: followUpDay(lead.followUpOn) && followUpDay(lead.followUpOn) <= todayISO() ? "#B45309" : "#111827" }}>
+                {followUpDay(lead.followUpOn) ? followUpLabel(lead.followUpOn) : "No follow-up set"}
+              </div>
+            )}
+          </Field>
+          <div style={S.hint}>Shows on the card and in Follow-ups Due when the date is today or earlier.</div>
         </div>
 
         <div style={S.drawerSection}>
@@ -1464,20 +1482,6 @@ function LeadDrawer({
               </span>
             )}
           </div>
-        </div>
-
-        <div style={S.drawerSection}>
-          <div style={S.sectionLabel}>Win-back Follow-up</div>
-          {canEdit ? (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="date" className="ninput" value={followUpDay(lead.followUpOn)}
-                onChange={(e) => onFollowUp(lead.id, e.target.value)} style={{ maxWidth: 180 }} />
-              {followUpDay(lead.followUpOn) && <button className="ghost" onClick={() => onFollowUp(lead.id, "")}>Clear</button>}
-            </div>
-          ) : (
-            <div style={S.rowPhone}>{followUpDay(lead.followUpOn) ? `Revisit on ${followUpLabel(lead.followUpOn)}` : "No follow-up set"}</div>
-          )}
-          <div style={S.hint}>Set a date to revisit this client (e.g. 6 months out) — appears in "Follow-ups Due".</div>
         </div>
 
         {canEdit && lead.stage === "new" && (
@@ -1541,16 +1545,7 @@ function LeadDrawer({
                 </button>
               ))}
             </div>
-            <div style={S.hint}>Meeting, Joint Meeting, and Deal Closed stay available here — same as the board.</div>
-            {lead.stage !== "new" && lead.stage !== "meeting" && lead.stage !== "joint_meeting" && lead.stage !== "rejected" && (
-              <button
-                className="ghost"
-                style={{ marginTop: 10, borderColor: "#DC2626", color: "#DC2626", width: "100%" }}
-                onClick={() => handleStageClick("rejected")}
-              >
-                ✕ Client Rejected
-              </button>
-            )}
+            <div style={S.hint}>Same stages as the board, including Deal Rejected.</div>
           </div>
         )}
 
@@ -2587,7 +2582,7 @@ function NewLeadButton({
   staff: Staff[];
   meUsername?: string;
 }) {
-  const empty = { client: "", phone: "", requirements: "", service: "Investment", value: "", source: "cold_call", meetingLocation: "", jointWith: "" };
+  const empty = { client: "", phone: "", requirements: "", service: "Investment", value: "", source: "cold_call", meetingLocation: "", jointWith: "", followUpOn: "" };
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -2611,6 +2606,7 @@ function NewLeadButton({
       value: Number(form.value) || 0,
       meetingLocation,
       jointWith: form.jointWith || undefined,
+      followUpOn: form.followUpOn || undefined,
     });
     setSaving(false);
     if (ok) {
@@ -2656,6 +2652,9 @@ function NewLeadButton({
               <select className="sel" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} style={{ width: "100%" }}>
                 {SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
+            </Field>
+            <Field label="Follow-up date">
+              <input type="date" className="ninput" value={form.followUpOn} onChange={(e) => setForm({ ...form, followUpOn: e.target.value })} />
             </Field>
             <Field label="Estimated value (₹)">
               <input className="ninput" placeholder="e.g. 50000" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} />
@@ -2800,7 +2799,7 @@ const CSS = `
   .addbtn:hover { background: #0F1F52; }
   button:focus-visible, .ninput:focus-visible, .sel:focus-visible { outline: 2px solid #E0AA3D; outline-offset: 2px; }
 
-  .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  .board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; align-items: start; }
   .stackStrip { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 280px); gap: 12px; margin-bottom: 16px; }
   .metricsGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
   .metricLine { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; min-width: 0; }
