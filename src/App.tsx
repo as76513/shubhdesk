@@ -186,7 +186,22 @@ function DataCell({
 }
 const sourceOf = (id?: string | null) => SOURCES.find((s) => s.id === id)?.label ?? id;
 const reasonOf = (id?: string | null) => REJECTION_REASONS.find((r) => r.id === id)?.label ?? id;
-const todayISO = () => new Date().toISOString().slice(0, 10);
+/** Local calendar day — UTC slice was hiding today's follow-ups after IST midnight. */
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+/** Amplify a.date() sometimes returns YYYY-MM-DD, sometimes a full ISO timestamp. */
+function followUpDay(raw?: string | null): string {
+  const m = String(raw ?? "").match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+}
+function followUpLabel(raw?: string | null): string {
+  const day = followUpDay(raw);
+  if (!day) return "";
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
 const LOGO = "/shubhshree-logo.jpg"; // served from public/; for prod you can use https://app.shubhshreeknowledgehub.com/assets/logo.png
 
 export default function App() {
@@ -320,7 +335,10 @@ export default function App() {
   }, [leads, me, filterService]);
 
   const dueLeads = useMemo(
-    () => visibleLeads.filter((l) => l.followUpOn && l.followUpOn <= todayISO()),
+    () => visibleLeads.filter((l) => {
+      const day = followUpDay(l.followUpOn);
+      return !!day && day <= todayISO();
+    }),
     [visibleLeads]
   );
 
@@ -710,11 +728,9 @@ export default function App() {
           <div style={S.tabs}>
             <button className={view === "board" ? "tab active" : "tab"} onClick={() => setView("board")}>Pipeline Board</button>
             <button className={view === "list" ? "tab active" : "tab"} onClick={() => setView("list")}>My Leads</button>
-            {(me?.role === "admin" || me?.role === "wealth_manager") && (
-              <button className={view === "followups" ? "tab active" : "tab"} onClick={() => setView("followups")}>
-                Follow-ups Due{dueLeads.length > 0 ? ` (${dueLeads.length})` : ""}
-              </button>
-            )}
+            <button className={view === "followups" ? "tab active" : "tab"} onClick={() => setView("followups")}>
+              Follow-ups Due{dueLeads.length > 0 ? ` (${dueLeads.length})` : ""}
+            </button>
             {(me?.role === "admin" || me?.role === "advisor") && (
               <button className={view === "trades" ? "tab active" : "tab"} onClick={() => setView("trades")}>Trades</button>
             )}
@@ -1280,6 +1296,16 @@ function LeadCardVisual({ lead, nameOf, draggable, dragging }: {
           )}
         </div>
       )}
+      {followUpDay(lead.followUpOn) && (
+        <div style={{
+          ...S.dueDate,
+          marginTop: 6,
+          color: followUpDay(lead.followUpOn) <= todayISO() ? "#B45309" : "#6B7280",
+        }}>
+          {followUpDay(lead.followUpOn) <= todayISO() ? "Follow-up due " : "Follow-up "}
+          {followUpLabel(lead.followUpOn)}
+        </div>
+      )}
     </div>
   );
 }
@@ -1298,6 +1324,15 @@ function ListView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => void 
             </DataCell>
             <DataCell label="Service" style={{ flex: 1 }}><span style={{ ...S.serviceTag, background: "#FBF3DC", color: "#8A6A1C" }}>{serviceLabel(l.service)}</span></DataCell>
             <DataCell label="Stage" style={{ flex: 1 }}><span style={{ ...S.stagePill, background: st.color }}>{st.label}</span></DataCell>
+            <DataCell label="Follow-up" style={{ flex: 1.1 }}>
+              {followUpDay(l.followUpOn) ? (
+                <div style={{ ...S.dueDate, color: followUpDay(l.followUpOn) <= todayISO() ? "#B45309" : "#6B7280" }}>
+                  {followUpLabel(l.followUpOn)}
+                </div>
+              ) : (
+                <span style={{ color: "#9CA3AF", fontSize: 12 }}>—</span>
+              )}
+            </DataCell>
             <DataCell label="Value" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{rupee(l.value)}</DataCell>
           </div>
         );
@@ -1323,7 +1358,7 @@ function FollowUpView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => v
             </DataCell>
             <DataCell label="Notes" className="dc-span" style={{ flex: 2 }}><div style={S.reqText}>{l.requirements || "—"}</div></DataCell>
             <DataCell label="Follow-up" className="dc-right" style={{ flex: 1, textAlign: "right" }}>
-              <div style={S.dueDate}>Due {l.followUpOn}</div>
+              <div style={S.dueDate}>Due {followUpLabel(l.followUpOn) || l.followUpOn}</div>
               <div style={S.rowPhone}>was {stageOf(l.stage).label}</div>
             </DataCell>
           </div>
@@ -1411,6 +1446,12 @@ function LeadDrawer({
             </span>
           </div>
           <div style={S.detailRow}><span style={S.detailKey}>Wants</span><span style={{ textAlign: "right", maxWidth: 260 }}>{lead.requirements || "—"}</span></div>
+          <div style={S.detailRow}>
+            <span style={S.detailKey}>Follow-up</span>
+            <span style={{ color: followUpDay(lead.followUpOn) && followUpDay(lead.followUpOn) <= todayISO() ? "#B45309" : undefined, fontWeight: 600 }}>
+              {followUpDay(lead.followUpOn) ? followUpLabel(lead.followUpOn) : "—"}
+            </span>
+          </div>
         </div>
 
         <div style={S.drawerSection}>
@@ -1429,12 +1470,12 @@ function LeadDrawer({
           <div style={S.sectionLabel}>Win-back Follow-up</div>
           {canEdit ? (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="date" className="ninput" value={lead.followUpOn || ""}
+              <input type="date" className="ninput" value={followUpDay(lead.followUpOn)}
                 onChange={(e) => onFollowUp(lead.id, e.target.value)} style={{ maxWidth: 180 }} />
-              {lead.followUpOn && <button className="ghost" onClick={() => onFollowUp(lead.id, "")}>Clear</button>}
+              {followUpDay(lead.followUpOn) && <button className="ghost" onClick={() => onFollowUp(lead.id, "")}>Clear</button>}
             </div>
           ) : (
-            <div style={S.rowPhone}>{lead.followUpOn ? `Revisit on ${lead.followUpOn}` : "No follow-up set"}</div>
+            <div style={S.rowPhone}>{followUpDay(lead.followUpOn) ? `Revisit on ${followUpLabel(lead.followUpOn)}` : "No follow-up set"}</div>
           )}
           <div style={S.hint}>Set a date to revisit this client (e.g. 6 months out) — appears in "Follow-ups Due".</div>
         </div>
