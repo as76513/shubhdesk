@@ -18,9 +18,9 @@ import {
   listStaff,
   ensureOwnStaffProfile,
   createLead as apiCreateLead,
+  updateLead as apiUpdateLead,
   moveStage as apiMoveStage,
   addNote as apiAddNote,
-  setFollowUp as apiSetFollowUp,
   listNotes,
   deleteLead as apiDeleteLead,
   friendlyError,
@@ -89,6 +89,8 @@ import type { Schema } from "../amplify/data/resource";
 // ============================================================
 
 type Lead = Schema["Lead"]["type"];
+type LeadService = NonNullable<Lead["service"]>;
+type LeadSource = NonNullable<Lead["source"]>;
 type Note = Schema["Note"]["type"];
 type Staff = Schema["StaffProfile"]["type"];
 type Trade = Schema["Trade"]["type"];
@@ -486,13 +488,27 @@ export default function App() {
       setError(friendlyError(e, "Couldn't save your note. Please try again."));
     }
   }
-  async function handleFollowUp(leadId: string, date: string) {
+  async function handleUpdateLead(input: {
+    id: string;
+    client: string;
+    phone?: string;
+    requirements?: string;
+    service: LeadService;
+    value?: number;
+    source?: LeadSource;
+    meetingLocation?: string;
+    jointWith?: string;
+    followUpOn?: string | null;
+  }): Promise<boolean> {
     try {
-      await apiSetFollowUp(leadId, date || null);
+      const updated = await apiUpdateLead(input);
       await refresh();
-      setSelected((s) => (s && s.id === leadId ? { ...s, followUpOn: date } : s));
+      if (updated) setSelected(updated);
+      else setSelected((s) => (s && s.id === input.id ? { ...s, ...input } : s));
+      return true;
     } catch (e) {
-      setError(friendlyError(e, "Couldn't set the follow-up date. Please try again."));
+      setError(friendlyError(e, "Couldn't save the lead. Please try again."));
+      return false;
     }
   }
 
@@ -804,11 +820,13 @@ export default function App() {
           onClose={() => setSelected(null)}
           onMove={requestMove}
           onNote={handleNote}
-          onFollowUp={handleFollowUp}
+          onSaveDetails={handleUpdateLead}
           canEdit={canEdit(selected)}
           canDelete={me?.role === "admin"}
           onDelete={() => setDeletePrompt(selected)}
           nameOf={nameOf}
+          staff={staff}
+          meUsername={me?.username}
         />
       )}
 
@@ -1369,23 +1387,62 @@ function FollowUpView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => v
   );
 }
 
+function draftFromLead(lead: Lead) {
+  return {
+    client: lead.client ?? "",
+    phone: lead.phone ?? "",
+    meetingLocation: lead.meetingLocation ?? "",
+    jointWith: lead.jointWith ?? "",
+    requirements: lead.requirements ?? "",
+    service: (lead.service ?? "Investment") as LeadService,
+    source: (lead.source ?? "cold_call") as LeadSource,
+    followUpOn: followUpDay(lead.followUpOn),
+    value: lead.value != null ? String(lead.value) : "",
+  };
+}
+
 function LeadDrawer({
-  lead, onClose, onMove, onNote, onFollowUp, canEdit, canDelete, onDelete, nameOf,
+  lead, onClose, onMove, onNote, onSaveDetails, canEdit, canDelete, onDelete, nameOf, staff, meUsername,
 }: {
   lead: Lead;
   onClose: () => void;
   onMove: (lead: Lead, stage: string) => void;
   onNote: (leadId: string, text: string) => void;
-  onFollowUp: (leadId: string, date: string) => void;
+  onSaveDetails: (input: {
+    id: string;
+    client: string;
+    phone?: string;
+    requirements?: string;
+    service: LeadService;
+    value?: number;
+    source?: LeadSource;
+    meetingLocation?: string;
+    jointWith?: string;
+    followUpOn?: string | null;
+  }) => Promise<boolean>;
   canEdit: boolean;
   canDelete?: boolean;
   onDelete?: () => void;
   nameOf: (u?: string | null) => string;
+  staff: Staff[];
+  meUsername?: string;
 }) {
   const [noteText, setNoteText] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
+  const [form, setForm] = useState(() => draftFromLead(lead));
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const st = stageOf(lead.stage);
+  const others = colleaguesOf(staff, meUsername);
+  const jointOptions = lead.jointWith && !others.some((s) => s.username === lead.jointWith)
+    ? [{ username: lead.jointWith, displayName: nameOf(lead.jointWith) }, ...others]
+    : others;
+
+  useEffect(() => {
+    setForm(draftFromLead(lead));
+    setFormError(null);
+  }, [lead.id, lead.client, lead.phone, lead.meetingLocation, lead.jointWith, lead.requirements, lead.service, lead.source, lead.followUpOn, lead.value]);
 
   // Load the activity log for this lead.
   useEffect(() => {
@@ -1409,6 +1466,29 @@ function LeadDrawer({
     setNoteText("");
     // Refresh the local log.
     try { setNotes(await listNotes(lead.id)); } catch { /* ignore */ }
+  }
+
+  async function saveDetails() {
+    const client = form.client.trim();
+    const meetingLocation = form.meetingLocation.trim();
+    if (!client) { setFormError("Client name is required."); return; }
+    if (form.jointWith && !meetingLocation) { setFormError("Location is required for a joint meeting."); return; }
+    setFormError(null);
+    setSaving(true);
+    const ok = await onSaveDetails({
+      id: lead.id,
+      client,
+      phone: form.phone.trim(),
+      requirements: form.requirements.trim(),
+      service: form.service,
+      source: form.source,
+      value: Number(form.value) || 0,
+      meetingLocation,
+      jointWith: form.jointWith,
+      followUpOn: form.followUpOn || null,
+    });
+    setSaving(false);
+    if (!ok) setFormError("Couldn't save. Try again or check the banner at the top.");
   }
 
   return (
@@ -1435,41 +1515,76 @@ function LeadDrawer({
 
         <div style={S.drawerSection}>
           <div style={S.sectionLabel}>Client Details</div>
-          <div style={S.detailRow}><span style={S.detailKey}>Phone</span><span>{lead.phone || "—"}</span></div>
-          <div style={S.detailRow}><span style={S.detailKey}>Source</span><span>{sourceOf(lead.source) || "—"}</span></div>
-          <div style={S.detailRow}>
-            <span style={S.detailKey}>Joint / Location</span>
-            <span style={{ textAlign: "right", maxWidth: 280 }}>
-              {lead.jointWith ? `Joint: ${nameOf(lead.jointWith)}` : "Joint: —"}
-              {" · "}
-              {lead.meetingLocation ? `Location: ${lead.meetingLocation}` : "Location: —"}
-            </span>
-          </div>
-          <div style={S.detailRow}><span style={S.detailKey}>Wants</span><span style={{ textAlign: "right", maxWidth: 260 }}>{lead.requirements || "—"}</span></div>
-        </div>
-
-        <div style={S.drawerSection}>
-          <Field label="Follow-up date">
-            {canEdit ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  type="date"
-                  className="ninput"
-                  value={followUpDay(lead.followUpOn)}
-                  onChange={(e) => onFollowUp(lead.id, e.target.value)}
-                  style={{ flex: 1, maxWidth: "none" }}
-                />
-                {followUpDay(lead.followUpOn) && (
-                  <button className="ghost" onClick={() => onFollowUp(lead.id, "")}>Clear</button>
-                )}
+          {canEdit ? (
+            <>
+              <Field label="Client name" required>
+                <input className="ninput" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
+              </Field>
+              <Field label="Phone">
+                <input className="ninput" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              </Field>
+              <Field label="Location">
+                <textarea className="ninput" value={form.meetingLocation} onChange={(e) => setForm({ ...form, meetingLocation: e.target.value })} style={{ minHeight: 60, resize: "vertical", fontFamily: "inherit" }} />
+              </Field>
+              <Field label="Joint Meeting">
+                <select className="sel" value={form.jointWith} onChange={(e) => setForm({ ...form, jointWith: e.target.value })} style={{ width: "100%" }}>
+                  <option value="">— None —</option>
+                  {jointOptions.map((s) => (
+                    <option key={s.username} value={s.username}>{personListName(s.displayName)}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Requirements">
+                <textarea className="ninput" value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} style={{ minHeight: 60, resize: "vertical", fontFamily: "inherit" }} />
+              </Field>
+              <Field label="Service">
+                <select className="sel" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value as LeadService })} style={{ width: "100%" }}>
+                  {SERVICES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Source">
+                <select className="sel" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value as LeadSource })} style={{ width: "100%" }}>
+                  {SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Follow-up date">
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input type="date" className="ninput" value={form.followUpOn} onChange={(e) => setForm({ ...form, followUpOn: e.target.value })} style={{ flex: 1, maxWidth: "none" }} />
+                  {form.followUpOn && (
+                    <button type="button" className="ghost" onClick={() => setForm({ ...form, followUpOn: "" })}>Clear</button>
+                  )}
+                </div>
+              </Field>
+              <Field label="Estimated value (₹)">
+                <input className="ninput" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} />
+              </Field>
+              {formError && <div style={S.formError}>{formError}</div>}
+              <button className="primary" onClick={saveDetails} disabled={saving} style={{ width: "100%", opacity: saving ? 0.6 : 1 }}>
+                {saving ? "Saving…" : "Save details"}
+              </button>
+              <div style={S.hint}>Updates name, phone, location, notes, service, source, follow-up date, and value. Stage and owner stay as they are.</div>
+            </>
+          ) : (
+            <>
+              <div style={S.detailRow}><span style={S.detailKey}>Phone</span><span>{lead.phone || "—"}</span></div>
+              <div style={S.detailRow}><span style={S.detailKey}>Source</span><span>{sourceOf(lead.source) || "—"}</span></div>
+              <div style={S.detailRow}>
+                <span style={S.detailKey}>Joint / Location</span>
+                <span style={{ textAlign: "right", maxWidth: 280 }}>
+                  {lead.jointWith ? `Joint: ${nameOf(lead.jointWith)}` : "Joint: —"}
+                  {" · "}
+                  {lead.meetingLocation ? `Location: ${lead.meetingLocation}` : "Location: —"}
+                </span>
               </div>
-            ) : (
-              <div style={{ ...S.rowPhone, marginTop: 0, fontWeight: 600, color: followUpDay(lead.followUpOn) && followUpDay(lead.followUpOn) <= todayISO() ? "#B45309" : "#111827" }}>
-                {followUpDay(lead.followUpOn) ? followUpLabel(lead.followUpOn) : "No follow-up set"}
-              </div>
-            )}
-          </Field>
-          <div style={S.hint}>Shows on the card and in Follow-ups Due when the date is today or earlier.</div>
+              <div style={S.detailRow}><span style={S.detailKey}>Wants</span><span style={{ textAlign: "right", maxWidth: 260 }}>{lead.requirements || "—"}</span></div>
+              <div style={S.detailRow}><span style={S.detailKey}>Value</span><span>{rupee(lead.value)}</span></div>
+              <Field label="Follow-up date">
+                <div style={{ ...S.rowPhone, marginTop: 0, fontWeight: 600, color: followUpDay(lead.followUpOn) && followUpDay(lead.followUpOn) <= todayISO() ? "#B45309" : "#111827" }}>
+                  {followUpDay(lead.followUpOn) ? followUpLabel(lead.followUpOn) : "No follow-up set"}
+                </div>
+              </Field>
+            </>
+          )}
         </div>
 
         <div style={S.drawerSection}>

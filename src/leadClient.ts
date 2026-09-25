@@ -219,6 +219,35 @@ export async function createLead(input: {
   return data;
 }
 
+/** Update the fields staff entered on New Lead / the drawer. Does not change owner, stage, or client code. */
+export async function updateLead(input: {
+  id: string;
+  client?: string;
+  phone?: string;
+  requirements?: string;
+  service?: 'Investment' | 'Trading' | 'Both' | 'SIP' | 'Insurance' | 'Loans';
+  value?: number;
+  source?: 'cold_call' | 'referral' | 'walk_in' | 'existing_client' | 'digital' | 'other';
+  meetingLocation?: string;
+  jointWith?: string;
+  followUpOn?: string | null;
+}) {
+  const { data, errors } = await client.models.Lead.update({
+    id: input.id,
+    client: input.client,
+    phone: input.phone ?? '',
+    requirements: input.requirements ?? '',
+    service: input.service,
+    value: input.value,
+    source: input.source,
+    meetingLocation: input.meetingLocation ?? '',
+    jointWith: input.jointWith ?? '',
+    followUpOn: input.followUpOn || null,
+  });
+  if (errors) throw errors;
+  return data;
+}
+
 /** Set (or clear) the win-back follow-up date on a lead. YYYY-MM-DD. */
 export async function setFollowUp(leadId: string, date: string | null) {
   const { data, errors } = await client.models.Lead.update({
