@@ -55,6 +55,7 @@ import {
   openedByOther,
   accountOpenedBySelectValue,
   ACCOUNT_OPENED_OWN,
+  COMPANY_AUM_OWNER,
   insuranceSplit,
   financeSum,
   monthBounds,
@@ -407,15 +408,10 @@ export default function App() {
     [me, financeEntries, viewMonthRange]
   );
 
-  const monthRevenue = useMemo(() => {
-    const { start, end } = monthBounds();
-    return financeSum(
-      financeEntries,
-      "revenue",
-      { start, end },
-      me?.role === "admin" ? undefined : me?.username
-    );
-  }, [financeEntries, me]);
+  const totalAum = useMemo(
+    () => financeEntries.filter((e) => e.kind === "aum").reduce((s, e) => s + (e.amount ?? 0), 0),
+    [financeEntries]
+  );
 
   const hitMonthlyTarget = useMemo(
     () =>
@@ -707,7 +703,7 @@ export default function App() {
             Hello {helloName(me.displayName)} 👋
           </div>
         )}
-        <StatBar stats={stats} revenue={monthRevenue} totalBrokerage={me?.role === "admin" ? allTimeBrokerage : undefined} />
+        <StatBar stats={stats} aum={totalAum} totalBrokerage={me?.role === "admin" ? allTimeBrokerage : undefined} />
         {me?.role === "admin" ? (
           view !== "trades" && view !== "targets" ? (
             <>
@@ -794,9 +790,7 @@ export default function App() {
         ) : view === "targets" ? (
           <TargetsView
             staff={staff}
-            leads={leads}
             viewMonth={viewMonth}
-            onMonthChange={setViewMonth}
             companyTargets={companyTargets}
             insurance={insuranceRevenue}
             nameOf={nameOf}
@@ -904,12 +898,12 @@ function Header({ me }: { me: { displayName: string; role: Role } | null }) {
   );
 }
 
-function StatBar({ stats, revenue, totalBrokerage }: { stats: any; revenue?: number; totalBrokerage?: number }) {
+function StatBar({ stats, aum, totalBrokerage }: { stats: any; aum?: number; totalBrokerage?: number }) {
   const items = [
     { label: "Total Leads", value: stats.total },
     { label: "Active", value: stats.active },
     { label: "Closed Won", value: stats.closed },
-    { label: "Revenue", value: rupee(revenue ?? 0) },
+    { label: "AUM (till date)", value: rupee(aum ?? 0) },
     ...(totalBrokerage != null
       ? [{ label: "Total Brokerage (till date)", value: rupee(totalBrokerage) }]
       : []),
@@ -1031,13 +1025,6 @@ function pipelineStaff(staff: Staff[]): Staff[] {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-function progressStaff(staff: Staff[]): Staff[] {
-  return staff
-    .filter((s) => s.role === "wealth_manager" || s.role === "advisor")
-    .slice()
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
-}
-
 function CompanyProgressStrip({
   month,
   onMonthChange,
@@ -1102,58 +1089,6 @@ function PersonalTargetStrip({
         <div style={S.statLabel}>{incentiveLabel}</div>
         <div style={{ fontSize: 11, color: "#6B7280", marginTop: 6 }}>Entered by admin for this month.</div>
       </div>
-    </div>
-  );
-}
-
-function EmployeeProgressSection({
-  staff,
-  leads,
-  insurance,
-  finance,
-  viewMonth,
-  monthly,
-  quarterly,
-  yearly,
-}: {
-  staff: Staff[];
-  leads: Lead[];
-  insurance: InsuranceRevenue[];
-  finance: FinanceEntry[];
-  viewMonth: string;
-  monthly: MetricTargets;
-  quarterly: MetricTargets;
-  yearly: MetricTargets;
-}) {
-  const [cadence, setCadence] = useState<PeriodType>("monthly");
-  const range = periodRangeFor(cadence, viewMonth);
-  const target = cadence === "monthly" ? monthly : cadence === "quarterly" ? quarterly : yearly;
-  const people = progressStaff(staff);
-
-  return (
-    <div style={{ marginBottom: 24 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <div>
-          <div style={{ ...S.sectionLabel, marginBottom: 2 }}>Employee progress</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#07163F" }}>{range.label}</div>
-        </div>
-        <CadenceRadios name="employee-progress-cadence" value={cadence} onChange={setCadence} />
-      </div>
-      {people.length === 0 ? (
-        <div style={S.empty}>No Wealth Manager or Advisor profiles yet — progress appears once staff log in.</div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {people.map((p) => (
-            <div key={p.username} style={{ ...S.statCard, padding: "14px 16px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#07163F" }}>{p.displayName}</div>
-                <span style={S.roleTag}>{(p.role ?? "").toUpperCase()}</span>
-              </div>
-              <TargetMetrics actuals={personActualsFor(p.username, leads, insurance, range, finance)} target={target} />
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -2032,9 +1967,7 @@ function TradeModal({ trade, employees, isAdmin, nameOf, onClose, onSave }: {
 
 function TargetsView({
   staff,
-  leads,
   viewMonth,
-  onMonthChange,
   companyTargets,
   insurance,
   nameOf,
@@ -2048,9 +1981,7 @@ function TargetsView({
   onDeleteFinance,
 }: {
   staff: Staff[];
-  leads: Lead[];
   viewMonth: string;
-  onMonthChange: (m: string) => void;
   companyTargets: CompanyTarget[];
   insurance: InsuranceRevenue[];
   nameOf: (u?: string | null) => string;
@@ -2156,10 +2087,6 @@ function TargetsView({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
-        <MonthNav month={viewMonth} onChange={onMonthChange} />
-      </div>
-
       <button
         type="button"
         onClick={() => setQuotasOpen((o) => !o)}
@@ -2190,7 +2117,7 @@ function TargetsView({
         <>
           <div style={{ ...S.hint, margin: "8px 0 0" }}>
             The company sets these quotas; every Wealth Manager is measured against them personally. NCA is closed deals they own or sourced.
-            AUM is the amount you enter under AUM Tracking. SIP is their closed SIP value. Insurance is company revenue you attribute to them below.
+            SIP is their closed SIP value. Insurance is company revenue you attribute to them below. AUM lives in AUM Tracking and rolls up on the top bar.
             ₹ amounts: 2 Lakh = 2,00,000.
           </div>
 
@@ -2226,40 +2153,17 @@ function TargetsView({
         </>
       )}
 
-      <EmployeeProgressSection
-        staff={staff}
-        leads={leads}
-        insurance={insurance}
-        finance={finance}
-        viewMonth={viewMonth}
-        monthly={form.monthly}
-        quarterly={form.quarterly}
-        yearly={form.yearly}
-      />
-
       <FinanceLedger
-        title={`AUM Tracking — ${formatMonthLong(viewMonth)}`}
+        title="AUM Tracking"
         addLabel="+ Add AUM"
         kind="aum"
         amountLabel="AUM amount"
         entries={finance}
         viewMonth={viewMonth}
+        allTime
         employees={employees}
         nameOf={nameOf}
-        onCreate={onCreateFinance}
-        onUpdate={onUpdateFinance}
-        onDelete={onDeleteFinance}
-      />
-
-      <FinanceLedger
-        title={`Revenue — ${formatMonthLong(viewMonth)}`}
-        addLabel="+ Add revenue"
-        kind="revenue"
-        amountLabel="Company revenue"
-        entries={finance}
-        viewMonth={viewMonth}
-        employees={employees}
-        nameOf={nameOf}
+        assignEmployee={false}
         onCreate={onCreateFinance}
         onUpdate={onUpdateFinance}
         onDelete={onDeleteFinance}
@@ -2345,8 +2249,10 @@ function FinanceLedger({
   amountLabel,
   entries,
   viewMonth,
+  allTime = false,
   employees,
   nameOf,
+  assignEmployee = true,
   onCreate,
   onUpdate,
   onDelete,
@@ -2357,8 +2263,10 @@ function FinanceLedger({
   amountLabel: string;
   entries: FinanceEntry[];
   viewMonth: string;
+  allTime?: boolean;
   employees: Staff[];
   nameOf: (u?: string | null) => string;
+  assignEmployee?: boolean;
   onCreate: (input: { kind: FinanceKind; username: string; amount: number; earnedOn: string; note?: string }) => Promise<boolean>;
   onUpdate: (input: { id: string; kind: FinanceKind; username: string; amount: number; earnedOn: string; note?: string | null }) => Promise<boolean>;
   onDelete: (id: string) => void;
@@ -2368,7 +2276,7 @@ function FinanceLedger({
   const [deleting, setDeleting] = useState(false);
   const monthRange = monthBounds(parseISODate(viewMonth));
   const rows = entries
-    .filter((e) => e.kind === kind && inDateRange(e.earnedOn, monthRange.start, monthRange.end))
+    .filter((e) => e.kind === kind && (allTime || inDateRange(e.earnedOn, monthRange.start, monthRange.end)))
     .slice()
     .sort((a, b) => (b.earnedOn ?? "").localeCompare(a.earnedOn ?? ""));
   const th: React.CSSProperties = {
@@ -2380,11 +2288,22 @@ function FinanceLedger({
     letterSpacing: ".4px",
   };
 
-  async function handleSave(input: { username: string; amount: number; earnedOn: string; note?: string }) {
+  function rowLabel(r: FinanceEntry) {
+    if (!assignEmployee) {
+      if (r.note?.trim()) return r.note.trim();
+      if (r.username && r.username !== COMPANY_AUM_OWNER) return nameOf(r.username);
+      return "—";
+    }
+    return nameOf(r.username);
+  }
+
+  async function handleSave(input: { username?: string; amount: number; earnedOn: string; note?: string }) {
+    const username = assignEmployee ? (input.username ?? "") : COMPANY_AUM_OWNER;
+    const payload = { username, amount: input.amount, earnedOn: input.earnedOn, note: input.note };
     const ok =
       editing === "new"
-        ? await onCreate({ kind, ...input })
-        : await onUpdate({ id: (editing as FinanceEntry).id, kind, ...input });
+        ? await onCreate({ kind, ...payload })
+        : await onUpdate({ id: (editing as FinanceEntry).id, kind, ...payload });
     if (ok) setEditing(null);
   }
 
@@ -2397,14 +2316,14 @@ function FinanceLedger({
       <div style={S.list}>
         <div className="dataHead" style={{ ...S.listRow, cursor: "default" }}>
           <div style={{ ...th, flex: 1 }}>Date</div>
-          <div style={{ ...th, flex: 1.4 }}>Employee</div>
+          <div style={{ ...th, flex: 1.4 }}>{assignEmployee ? "Employee" : "Details"}</div>
           <div style={{ ...th, flex: 1, textAlign: "right" }}>{amountLabel}</div>
           <div style={{ width: 66 }} />
         </div>
         {rows.map((r) => (
           <div key={r.id} className="row dataRow" style={S.listRow}>
             <DataCell label="Date" style={{ flex: 1, fontSize: 12, color: "#6B7280", cursor: "pointer" }} onClick={() => setEditing(r)}>{r.earnedOn}</DataCell>
-            <DataCell label="Employee" style={{ flex: 1.4, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(r)}>{nameOf(r.username)}</DataCell>
+            <DataCell label={assignEmployee ? "Employee" : "Details"} className={assignEmployee ? undefined : "dc-span"} style={{ flex: 1.4, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(r)}>{rowLabel(r)}</DataCell>
             <DataCell label={amountLabel} className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditing(r)}>{rupee(r.amount)}</DataCell>
             <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
               <button className="ghost sm" onClick={() => setDeleteRow(r)}>Delete</button>
@@ -2412,7 +2331,9 @@ function FinanceLedger({
           </div>
         ))}
         {rows.length === 0 && (
-          <div style={S.empty}>No {amountLabel.toLowerCase()} entries this month.</div>
+          <div style={S.empty}>
+            {allTime ? `No ${amountLabel.toLowerCase()} entries yet.` : `No ${amountLabel.toLowerCase()} entries this month.`}
+          </div>
         )}
       </div>
 
@@ -2422,7 +2343,9 @@ function FinanceLedger({
           amountLabel={amountLabel}
           entry={editing === "new" ? null : editing}
           employees={employees}
-          defaultDate={viewMonth === monthStartOf() ? todayISO() : viewMonth}
+          assignEmployee={assignEmployee}
+          nameOf={nameOf}
+          defaultDate={allTime || viewMonth === monthStartOf() ? todayISO() : viewMonth}
           onClose={() => setEditing(null)}
           onSave={handleSave}
         />
@@ -2431,7 +2354,7 @@ function FinanceLedger({
       {deleteRow && (
         <ConfirmDelete
           title="Delete this entry?"
-          detail={`${nameOf(deleteRow.username)} · ${rupee(deleteRow.amount)} · ${deleteRow.earnedOn}`}
+          detail={`${assignEmployee ? nameOf(deleteRow.username) : (deleteRow.note?.trim() || "AUM")} · ${rupee(deleteRow.amount)} · ${deleteRow.earnedOn}`}
           confirmLabel="Delete entry"
           busy={deleting}
           onCancel={() => !deleting && setDeleteRow(null)}
@@ -2452,6 +2375,8 @@ function FinanceEntryModal({
   amountLabel,
   entry,
   employees,
+  assignEmployee = true,
+  nameOf,
   defaultDate,
   onClose,
   onSave,
@@ -2460,24 +2385,40 @@ function FinanceEntryModal({
   amountLabel: string;
   entry: FinanceEntry | null;
   employees: Staff[];
+  assignEmployee?: boolean;
+  nameOf?: (u?: string | null) => string;
   defaultDate: string;
   onClose: () => void;
-  onSave: (input: { username: string; amount: number; earnedOn: string; note?: string }) => Promise<void>;
+  onSave: (input: { username?: string; amount: number; earnedOn: string; note?: string }) => Promise<void>;
 }) {
   const [username, setUsername] = useState(entry?.username ?? employees[0]?.username ?? "");
   const [amount, setAmount] = useState(entry?.amount != null ? String(entry.amount) : "");
   const [earnedOn, setEarnedOn] = useState(entry?.earnedOn ?? defaultDate);
+  const [note, setNote] = useState(() => {
+    if (entry?.note?.trim()) return entry.note;
+    if (!assignEmployee && entry?.username && entry.username !== COMPANY_AUM_OWNER && nameOf) {
+      return nameOf(entry.username);
+    }
+    return "";
+  });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function submit() {
-    if (!username) { setFormError("Pick an employee."); return; }
+    if (assignEmployee && !username) { setFormError("Pick an employee."); return; }
+    const details = note.trim();
+    if (!assignEmployee && !details) { setFormError("Enter the AUM details."); return; }
     const n = Number(amount);
     if (!Number.isFinite(n) || n <= 0) { setFormError(`Enter the ${amountLabel.toLowerCase()} in ₹.`); return; }
     if (!earnedOn) { setFormError("Pick the date."); return; }
     setFormError(null);
     setSaving(true);
-    await onSave({ username, amount: Math.round(n), earnedOn });
+    await onSave({
+      username: assignEmployee ? username : COMPANY_AUM_OWNER,
+      amount: Math.round(n),
+      earnedOn,
+      note: details || undefined,
+    });
     setSaving(false);
   }
 
@@ -2485,13 +2426,25 @@ function FinanceEntryModal({
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={(e) => e.stopPropagation()}>
         <div style={S.drawerName}>{title}</div>
-        <Field label="Employee" required>
-          <select className="sel" value={username} onChange={(e) => setUsername(e.target.value)} style={{ width: "100%" }}>
-            {employees.map((e) => (
-              <option key={e.username} value={e.username}>{e.displayName} ({roleLabel(e.role)})</option>
-            ))}
-          </select>
-        </Field>
+        {assignEmployee ? (
+          <Field label="Employee" required>
+            <select className="sel" value={username} onChange={(e) => setUsername(e.target.value)} style={{ width: "100%" }}>
+              {employees.map((e) => (
+                <option key={e.username} value={e.username}>{e.displayName} ({roleLabel(e.role)})</option>
+              ))}
+            </select>
+          </Field>
+        ) : (
+          <Field label="Details" required>
+            <textarea
+              className="ninput"
+              placeholder="Client, scheme, or any AUM notes"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              style={{ minHeight: 80, resize: "vertical", fontFamily: "inherit" }}
+            />
+          </Field>
+        )}
         <Field label={`${amountLabel} (₹)`} required>
           <input className="ninput" inputMode="numeric" placeholder="e.g. 50000" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>

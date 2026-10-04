@@ -6,6 +6,8 @@ type InsuranceRevenue = Schema["InsuranceRevenue"]["type"];
 type FinanceEntry = Schema["FinanceEntry"]["type"];
 
 export type FinanceKind = "aum" | "revenue" | "incentive";
+/** FinanceEntry.username is required; AUM rows are company-level, not an employee. */
+export const COMPANY_AUM_OWNER = "COMPANY";
 
 /** Sum of admin-entered finance rows for a kind (and optional employee) in range. */
 export function financeSum(
@@ -351,7 +353,8 @@ export function companyActualsFor(
 /**
  * One person's actuals against the shared individual quota.
  * Closed-lead credit matches `closedLeadCountFor` (owner or sourcedBy).
- * Insurance / AUM are only the rows admin attributed to this username.
+ * Insurance is only the rows admin attributed to this username.
+ * AUM on a person is leftover rows still tagged to them; new AUM is company-level.
  */
 export function personActualsFor(
   username: string,
