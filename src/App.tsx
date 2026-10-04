@@ -703,7 +703,11 @@ export default function App() {
             Hello {helloName(me.displayName)} 👋
           </div>
         )}
-        <StatBar stats={stats} aum={totalAum} totalBrokerage={me?.role === "admin" ? allTimeBrokerage : undefined} />
+        <StatBar
+          stats={stats}
+          aum={me?.role === "admin" ? totalAum : undefined}
+          totalBrokerage={me?.role === "admin" ? allTimeBrokerage : undefined}
+        />
         {me?.role === "admin" ? (
           view !== "trades" && view !== "targets" ? (
             <>
@@ -903,7 +907,9 @@ function StatBar({ stats, aum, totalBrokerage }: { stats: any; aum?: number; tot
     { label: "Total Leads", value: stats.total },
     { label: "Active", value: stats.active },
     { label: "Closed Won", value: stats.closed },
-    { label: "AUM (till date)", value: rupee(aum ?? 0) },
+    ...(aum != null
+      ? [{ label: "AUM (till date)", value: rupee(aum) }]
+      : []),
     ...(totalBrokerage != null
       ? [{ label: "Total Brokerage (till date)", value: rupee(totalBrokerage) }]
       : []),
