@@ -213,13 +213,18 @@ export function pctOf(actual: number, target: number | null | undefined): number
   return Math.round((actual / target) * 100);
 }
 
-export function hitAnyMetric(actuals: CompanyActuals, target: MetricTargets): boolean {
-  return (
-    (pctOf(actuals.nca, target.ncaTarget) ?? 0) >= 100 ||
-    (pctOf(actuals.aum, target.aumTarget) ?? 0) >= 100 ||
-    (pctOf(actuals.sip, target.sipTarget) ?? 0) >= 100 ||
-    (pctOf(actuals.insurance, target.insuranceTarget) ?? 0) >= 100
-  );
+export function hitAnyMetric(
+  actuals: CompanyActuals,
+  target: MetricTargets,
+  metrics: Array<keyof CompanyActuals> = ["nca", "aum", "sip", "insurance"]
+): boolean {
+  const goal: Record<keyof CompanyActuals, number> = {
+    nca: target.ncaTarget,
+    aum: target.aumTarget,
+    sip: target.sipTarget,
+    insurance: target.insuranceTarget,
+  };
+  return metrics.some((k) => (pctOf(actuals[k], goal[k]) ?? 0) >= 100);
 }
 
 export function progressColor(pct: number | null): string {
@@ -308,12 +313,13 @@ export function companyTargetOf(
   };
 }
 
-/** Company-level quota = per-person quota × number of wealth managers. */
+/** Company-level quota = per-person quota × number of wealth managers.
+ * AUM stays the individual quota — company AUM is the top-bar total, not a rolled-up target. */
 export function scaleTargets(target: MetricTargets, people: number): MetricTargets {
   const n = Math.max(1, people);
   return {
     ncaTarget: target.ncaTarget * n,
-    aumTarget: target.aumTarget * n,
+    aumTarget: target.aumTarget,
     sipTarget: target.sipTarget * n,
     insuranceTarget: target.insuranceTarget * n,
   };
@@ -328,8 +334,9 @@ export interface CompanyActuals {
 
 /**
  * Actuals for a date range. NCA = closed leads (any service).
- * AUM = admin-entered FinanceEntry kind=aum. SIP = closed SIP deal value.
- * Insurance = admin-entered company revenue.
+ * AUM here is only rows still tagged to a person — company ledger AUM
+ * (username COMPANY) is the top-bar total, not pipeline progress.
+ * SIP = closed SIP deal value. Insurance = admin-entered company revenue.
  */
 export function companyActualsFor(
   leads: Lead[],
@@ -342,7 +349,11 @@ export function companyActualsFor(
   );
   return {
     nca: closed.length,
-    aum: financeSum(finance, "aum", range),
+    aum: financeSum(
+      finance.filter((e) => e.username && e.username !== COMPANY_AUM_OWNER),
+      "aum",
+      range
+    ),
     sip: closed.filter((l) => l.service === "SIP").reduce((s, l) => s + (l.value ?? 0), 0),
     insurance: insurance
       .filter((r) => inDateRange(r.earnedOn, range.start, range.end))

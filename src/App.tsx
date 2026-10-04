@@ -66,8 +66,6 @@ import {
   yearBounds,
   companyTargetOf,
   personActualsFor,
-  companyActualsFor,
-  scaleTargets,
   periodRangeFor,
   hitAnyMetric,
   DEFAULT_COMPANY_TARGETS,
@@ -393,14 +391,16 @@ export default function App() {
     [me, leads, insuranceRevenue, financeEntries, viewMonthRange]
   );
 
-  const companyMonthActuals = useMemo(
-    () => companyActualsFor(leads, insuranceRevenue, viewMonthRange, financeEntries),
-    [leads, insuranceRevenue, financeEntries, viewMonthRange]
-  );
+  const pipelinePeople = useMemo(() => pipelineStaff(staff), [staff]);
 
-  const companyMonthTarget = useMemo(
-    () => scaleTargets(monthlyTarget, pipelineStaff(staff).length),
-    [monthlyTarget, staff]
+  const pipelineMonthRows = useMemo(
+    () =>
+      pipelinePeople.map((p) => ({
+        username: p.username,
+        displayName: p.displayName,
+        actuals: personActualsFor(p.username, leads, insuranceRevenue, viewMonthRange, financeEntries),
+      })),
+    [pipelinePeople, leads, insuranceRevenue, viewMonthRange, financeEntries]
   );
 
   const myIncentive = useMemo(
@@ -414,11 +414,13 @@ export default function App() {
   );
 
   const hitMonthlyTarget = useMemo(
-    () =>
-      me?.role === "admin"
-        ? hitAnyMetric(companyMonthActuals, companyMonthTarget)
-        : hitAnyMetric(myMonthActuals, monthlyTarget),
-    [me, companyMonthActuals, companyMonthTarget, myMonthActuals, monthlyTarget]
+    () => {
+      if (me?.role === "admin") {
+        return pipelineMonthRows.some((row) => hitAnyMetric(row.actuals, monthlyTarget));
+      }
+      return hitAnyMetric(myMonthActuals, monthlyTarget);
+    },
+    [me, pipelineMonthRows, myMonthActuals, monthlyTarget]
   );
 
   function canEdit(lead: Lead) {
@@ -712,14 +714,13 @@ export default function App() {
           view !== "trades" && view !== "targets" ? (
             <>
               {hitMonthlyTarget && (
-                <div style={S.celebrateBanner}>Company monthly target hit — well done.</div>
+                <div style={S.celebrateBanner}>A Wealth Manager hit their monthly target — well done.</div>
               )}
               <CompanyProgressStrip
                 month={viewMonth}
                 onMonthChange={setViewMonth}
-                actuals={companyMonthActuals}
-                target={companyMonthTarget}
-                people={pipelineStaff(staff).length}
+                rows={pipelineMonthRows}
+                target={monthlyTarget}
               />
             </>
           ) : null
@@ -1034,26 +1035,35 @@ function pipelineStaff(staff: Staff[]): Staff[] {
 function CompanyProgressStrip({
   month,
   onMonthChange,
-  actuals,
+  rows,
   target,
-  people,
 }: {
   month: string;
   onMonthChange: (m: string) => void;
-  actuals: CompanyActuals;
+  rows: { username: string; displayName: string; actuals: CompanyActuals }[];
   target: MetricTargets;
-  people: number;
 }) {
   return (
     <div style={{ ...S.statCard, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-        <div style={{ ...S.statLabel, marginTop: 0 }}>Company targets — {formatMonthLong(month)}</div>
+        <div style={{ ...S.statLabel, marginTop: 0 }}>Individual targets — {formatMonthLong(month)}</div>
         <MonthNav month={month} onChange={onMonthChange} />
       </div>
       <div style={S.hint}>
-        Sum of individual quotas across {people} Wealth Managers. Each closed deal counts once for the company.
+        Same individual quota for every Wealth Manager. AUM here is only AUM tagged to that person — company AUM is the top-bar total.
       </div>
-      <TargetMetrics actuals={actuals} target={target} />
+      {rows.length === 0 ? (
+        <div style={S.empty}>No Wealth Manager profiles yet.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
+          {rows.map((row) => (
+            <div key={row.username}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#07163F", marginBottom: 6 }}>{row.displayName}</div>
+              <TargetMetrics actuals={row.actuals} target={target} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
