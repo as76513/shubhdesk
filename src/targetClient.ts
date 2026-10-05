@@ -97,6 +97,7 @@ export async function listInsuranceRevenue() {
 
 export async function createInsuranceRevenue(input: {
   username: string;
+  insuranceAmount?: number;
   companyRevenue: number;
   earnedOn: string;
   note?: string;
@@ -109,6 +110,7 @@ export async function createInsuranceRevenue(input: {
 export async function updateInsuranceRevenue(input: {
   id: string;
   username?: string;
+  insuranceAmount?: number | null;
   companyRevenue?: number;
   earnedOn?: string;
   note?: string | null;
@@ -120,6 +122,43 @@ export async function updateInsuranceRevenue(input: {
 
 export async function deleteInsuranceRevenue(id: string) {
   const { data, errors } = await client.models.InsuranceRevenue.delete({ id });
+  if (errors) throw errors;
+  return data;
+}
+
+export async function listSipEntries() {
+  return listAllPages((nextToken) =>
+    client.models.SipEntry.list({ limit: 1000, nextToken })
+  );
+}
+
+export async function createSipEntry(input: {
+  clientName: string;
+  monthlyAmount: number;
+  annualValue: number;
+  revenue: number;
+  earnedOn: string;
+}) {
+  const { data, errors } = await client.models.SipEntry.create(input);
+  if (errors) throw errors;
+  return data;
+}
+
+export async function updateSipEntry(input: {
+  id: string;
+  clientName?: string;
+  monthlyAmount?: number;
+  annualValue?: number;
+  revenue?: number;
+  earnedOn?: string;
+}) {
+  const { data, errors } = await client.models.SipEntry.update(input);
+  if (errors) throw errors;
+  return data;
+}
+
+export async function deleteSipEntry(id: string) {
+  const { data, errors } = await client.models.SipEntry.delete({ id });
   if (errors) throw errors;
   return data;
 }

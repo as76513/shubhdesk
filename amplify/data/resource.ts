@@ -214,6 +214,7 @@ const schema = a.schema({
   InsuranceRevenue: a
     .model({
       username: a.string().required(), // employee this amount is attributed to
+      insuranceAmount: a.integer(),    // policy / cover amount in ₹ (admin-entered)
       companyRevenue: a.integer().required(), // ₹ the company actually earned
       earnedOn: a.date().required(),   // YYYY-MM-DD the revenue belongs to
       note: a.string(),
@@ -221,6 +222,21 @@ const schema = a.schema({
     .authorization((allow) => [
       allow.group('admin'),
       allow.ownerDefinedIn('username').to(['read']),
+    ]),
+
+  // Admin-entered SIP book. Annual value is usually monthly × 12;
+  // company revenue is annual × 6%, stored so the list does not recompute
+  // from a later formula change.
+  SipEntry: a
+    .model({
+      clientName: a.string().required(),
+      monthlyAmount: a.integer().required(),
+      annualValue: a.integer().required(),
+      revenue: a.integer().required(),
+      earnedOn: a.date().required(),
+    })
+    .authorization((allow) => [
+      allow.group('admin'),
     ]),
 
   // Admin-entered AUM / company revenue / incentive. Replaces calculated

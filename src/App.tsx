@@ -43,6 +43,10 @@ import {
   createInsuranceRevenue as apiCreateInsuranceRevenue,
   updateInsuranceRevenue as apiUpdateInsuranceRevenue,
   deleteInsuranceRevenue as apiDeleteInsuranceRevenue,
+  listSipEntries,
+  createSipEntry as apiCreateSipEntry,
+  updateSipEntry as apiUpdateSipEntry,
+  deleteSipEntry as apiDeleteSipEntry,
   listFinanceEntries,
   createFinanceEntry as apiCreateFinanceEntry,
   updateFinanceEntry as apiUpdateFinanceEntry,
@@ -57,6 +61,8 @@ import {
   ACCOUNT_OPENED_OWN,
   COMPANY_AUM_OWNER,
   insuranceSplit,
+  sipAnnualFromMonthly,
+  sipRevenueFromAnnual,
   financeSum,
   monthBounds,
   monthStartOf,
@@ -96,6 +102,7 @@ type Trade = Schema["Trade"]["type"];
 type Target = Schema["Target"]["type"];
 type CompanyTarget = Schema["CompanyTarget"]["type"];
 type InsuranceRevenue = Schema["InsuranceRevenue"]["type"];
+type SipEntry = Schema["SipEntry"]["type"];
 type FinanceEntry = Schema["FinanceEntry"]["type"];
 
 const STAGES = [
@@ -214,6 +221,7 @@ export default function App() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [companyTargets, setCompanyTargets] = useState<CompanyTarget[]>([]);
   const [insuranceRevenue, setInsuranceRevenue] = useState<InsuranceRevenue[]>([]);
+  const [sipEntries, setSipEntries] = useState<SipEntry[]>([]);
   const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -259,15 +267,17 @@ export default function App() {
   const refreshTargets = useCallback(async () => {
     setError(null);
     try {
-      const [tg, ct, ir, fe] = await Promise.all([
+      const [tg, ct, ir, sip, fe] = await Promise.all([
         listTargets(),
         listCompanyTargets(),
         listInsuranceRevenue(),
+        listSipEntries(),
         listFinanceEntries(),
       ]);
       setTargets(tg);
       setCompanyTargets(ct);
       setInsuranceRevenue(ir);
+      setSipEntries(sip);
       setFinanceEntries(fe);
     } catch (e) {
       setError(friendlyError(e, "Couldn't load targets. Check your connection and try again."));
@@ -300,12 +310,13 @@ export default function App() {
           setFinanceEntries(fe);
           setTrades(tr);
         } else {
-          const [ls, st, tg, ct, ir, fe, tr] = await Promise.all([
+          const [ls, st, tg, ct, ir, sip, fe, tr] = await Promise.all([
             listLeads(),
             listStaff(),
             listTargets(),
             listCompanyTargets(),
             listInsuranceRevenue(),
+            listSipEntries(),
             listFinanceEntries(),
             listTrades(),
           ]);
@@ -314,6 +325,7 @@ export default function App() {
           setTargets(tg);
           setCompanyTargets(ct);
           setInsuranceRevenue(ir);
+          setSipEntries(sip);
           setFinanceEntries(fe);
           setTrades(tr);
         }
@@ -391,18 +403,6 @@ export default function App() {
     [me, leads, insuranceRevenue, financeEntries, viewMonthRange]
   );
 
-  const pipelinePeople = useMemo(() => pipelineStaff(staff), [staff]);
-
-  const pipelineMonthRows = useMemo(
-    () =>
-      pipelinePeople.map((p) => ({
-        username: p.username,
-        displayName: p.displayName,
-        actuals: personActualsFor(p.username, leads, insuranceRevenue, viewMonthRange, financeEntries),
-      })),
-    [pipelinePeople, leads, insuranceRevenue, viewMonthRange, financeEntries]
-  );
-
   const myIncentive = useMemo(
     () => (me ? financeSum(financeEntries, "incentive", viewMonthRange, me.username) : 0),
     [me, financeEntries, viewMonthRange]
@@ -414,13 +414,8 @@ export default function App() {
   );
 
   const hitMonthlyTarget = useMemo(
-    () => {
-      if (me?.role === "admin") {
-        return pipelineMonthRows.some((row) => hitAnyMetric(row.actuals, monthlyTarget));
-      }
-      return hitAnyMetric(myMonthActuals, monthlyTarget);
-    },
-    [me, pipelineMonthRows, myMonthActuals, monthlyTarget]
+    () => hitAnyMetric(myMonthActuals, monthlyTarget),
+    [myMonthActuals, monthlyTarget]
   );
 
   function canEdit(lead: Lead) {
@@ -590,6 +585,7 @@ export default function App() {
 
   async function handleCreateInsurance(input: {
     username: string;
+    insuranceAmount?: number;
     companyRevenue: number;
     earnedOn: string;
     note?: string;
@@ -607,6 +603,7 @@ export default function App() {
   async function handleUpdateInsurance(input: {
     id: string;
     username: string;
+    insuranceAmount?: number | null;
     companyRevenue: number;
     earnedOn: string;
     note?: string | null;
@@ -618,6 +615,50 @@ export default function App() {
     } catch (e) {
       setError(friendlyError(e, "Couldn't update insurance revenue. Please try again."));
       return false;
+    }
+  }
+
+  async function handleCreateSip(input: {
+    clientName: string;
+    monthlyAmount: number;
+    annualValue: number;
+    revenue: number;
+    earnedOn: string;
+  }) {
+    try {
+      await apiCreateSipEntry(input);
+      await refreshTargets();
+      return true;
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't save the SIP entry. Please try again."));
+      return false;
+    }
+  }
+
+  async function handleUpdateSip(input: {
+    id: string;
+    clientName: string;
+    monthlyAmount: number;
+    annualValue: number;
+    revenue: number;
+    earnedOn: string;
+  }) {
+    try {
+      await apiUpdateSipEntry(input);
+      await refreshTargets();
+      return true;
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't update the SIP entry. Please try again."));
+      return false;
+    }
+  }
+
+  async function handleDeleteSip(id: string) {
+    try {
+      await apiDeleteSipEntry(id);
+      await refreshTargets();
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't delete that SIP entry. Please try again."));
     }
   }
 
@@ -710,21 +751,7 @@ export default function App() {
           aum={me?.role === "admin" ? totalAum : undefined}
           totalBrokerage={me?.role === "admin" ? allTimeBrokerage : undefined}
         />
-        {me?.role === "admin" ? (
-          view !== "trades" && view !== "targets" ? (
-            <>
-              {hitMonthlyTarget && (
-                <div style={S.celebrateBanner}>A Wealth Manager hit their monthly target — well done.</div>
-              )}
-              <CompanyProgressStrip
-                month={viewMonth}
-                onMonthChange={setViewMonth}
-                rows={pipelineMonthRows}
-                target={monthlyTarget}
-              />
-            </>
-          ) : null
-        ) : (
+        {(me?.role !== "admin" || (view !== "trades" && view !== "targets")) && (
           <>
             {hitMonthlyTarget && (
               <div style={S.celebrateBanner}>Monthly target hit — well done.</div>
@@ -796,13 +823,18 @@ export default function App() {
           <TargetsView
             staff={staff}
             viewMonth={viewMonth}
+            onMonthChange={setViewMonth}
             companyTargets={companyTargets}
             insurance={insuranceRevenue}
+            sipEntries={sipEntries}
             nameOf={nameOf}
             onSaveTargets={handleUpsertCompanyTargets}
             onCreateInsurance={handleCreateInsurance}
             onUpdateInsurance={handleUpdateInsurance}
             onDeleteInsurance={handleDeleteInsurance}
+            onCreateSip={handleCreateSip}
+            onUpdateSip={handleUpdateSip}
+            onDeleteSip={handleDeleteSip}
             finance={financeEntries}
             onCreateFinance={handleCreateFinance}
             onUpdateFinance={handleUpdateFinance}
@@ -1021,49 +1053,6 @@ function CadenceToolbar({
         {showCadencePills && <CadenceRadios name="personal-cadence" value={cadence} onChange={onCadenceChange} />}
         {showMonthNav && <MonthNav month={month} onChange={onMonthChange} />}
       </div>
-    </div>
-  );
-}
-
-function pipelineStaff(staff: Staff[]): Staff[] {
-  return staff
-    .filter((s) => s.role === "wealth_manager")
-    .slice()
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
-}
-
-function CompanyProgressStrip({
-  month,
-  onMonthChange,
-  rows,
-  target,
-}: {
-  month: string;
-  onMonthChange: (m: string) => void;
-  rows: { username: string; displayName: string; actuals: CompanyActuals }[];
-  target: MetricTargets;
-}) {
-  return (
-    <div style={{ ...S.statCard, marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-        <div style={{ ...S.statLabel, marginTop: 0 }}>Individual targets — {formatMonthLong(month)}</div>
-        <MonthNav month={month} onChange={onMonthChange} />
-      </div>
-      <div style={S.hint}>
-        Same individual quota for every Wealth Manager. AUM here is only AUM tagged to that person — company AUM is the top-bar total.
-      </div>
-      {rows.length === 0 ? (
-        <div style={S.empty}>No Wealth Manager profiles yet.</div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
-          {rows.map((row) => (
-            <div key={row.username}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#07163F", marginBottom: 6 }}>{row.displayName}</div>
-              <TargetMetrics actuals={row.actuals} target={target} />
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -1984,13 +1973,18 @@ function TradeModal({ trade, employees, isAdmin, nameOf, onClose, onSave }: {
 function TargetsView({
   staff,
   viewMonth,
+  onMonthChange,
   companyTargets,
   insurance,
+  sipEntries,
   nameOf,
   onSaveTargets,
   onCreateInsurance,
   onUpdateInsurance,
   onDeleteInsurance,
+  onCreateSip,
+  onUpdateSip,
+  onDeleteSip,
   finance,
   onCreateFinance,
   onUpdateFinance,
@@ -1998,14 +1992,17 @@ function TargetsView({
 }: {
   staff: Staff[];
   viewMonth: string;
+  onMonthChange: (m: string) => void;
   companyTargets: CompanyTarget[];
   insurance: InsuranceRevenue[];
+  sipEntries: SipEntry[];
   nameOf: (u?: string | null) => string;
   onSaveTargets: (
     rows: { periodType: PeriodType; ncaTarget: number; aumTarget: number; sipTarget: number; insuranceTarget: number }[]
   ) => Promise<boolean>;
   onCreateInsurance: (input: {
     username: string;
+    insuranceAmount?: number;
     companyRevenue: number;
     earnedOn: string;
     note?: string;
@@ -2013,11 +2010,28 @@ function TargetsView({
   onUpdateInsurance: (input: {
     id: string;
     username: string;
+    insuranceAmount?: number | null;
     companyRevenue: number;
     earnedOn: string;
     note?: string | null;
   }) => Promise<boolean>;
   onDeleteInsurance: (id: string) => void;
+  onCreateSip: (input: {
+    clientName: string;
+    monthlyAmount: number;
+    annualValue: number;
+    revenue: number;
+    earnedOn: string;
+  }) => Promise<boolean>;
+  onUpdateSip: (input: {
+    id: string;
+    clientName: string;
+    monthlyAmount: number;
+    annualValue: number;
+    revenue: number;
+    earnedOn: string;
+  }) => Promise<boolean>;
+  onDeleteSip: (id: string) => void;
   finance: FinanceEntry[];
   onCreateFinance: (input: { kind: FinanceKind; username: string; amount: number; earnedOn: string; note?: string }) => Promise<boolean>;
   onUpdateFinance: (input: { id: string; kind: FinanceKind; username: string; amount: number; earnedOn: string; note?: string | null }) => Promise<boolean>;
@@ -2025,9 +2039,13 @@ function TargetsView({
 }) {
   const [saving, setSaving] = useState(false);
   const [quotasOpen, setQuotasOpen] = useState(false);
+  const [aumOpen, setAumOpen] = useState(true);
   const [editingIns, setEditingIns] = useState<InsuranceRevenue | "new" | null>(null);
   const [deleteIns, setDeleteIns] = useState<InsuranceRevenue | null>(null);
   const [deletingIns, setDeletingIns] = useState(false);
+  const [editingSip, setEditingSip] = useState<SipEntry | "new" | null>(null);
+  const [deleteSip, setDeleteSip] = useState<SipEntry | null>(null);
+  const [deletingSip, setDeletingSip] = useState(false);
   const [form, setForm] = useState({
     monthly: DEFAULT_COMPANY_TARGETS.monthly,
     quarterly: DEFAULT_COMPANY_TARGETS.quarterly,
@@ -2044,13 +2062,20 @@ function TargetsView({
 
   const monthRange = monthBounds(parseISODate(viewMonth));
 
-  const employees = useMemo(() => {
-    const pool = staff.filter((s) => s.role === "wealth_manager" || s.role === "advisor");
-    const list = (pool.length > 0 ? pool : staff).slice();
-    return list.sort((a, b) => a.displayName.localeCompare(b.displayName));
-  }, [staff]);
+  const employees = useMemo(
+    () =>
+      staff
+        .slice()
+        .sort((a, b) => personListName(a.displayName).localeCompare(personListName(b.displayName))),
+    [staff]
+  );
 
   const monthIns = insurance
+    .filter((r) => inDateRange(r.earnedOn, monthRange.start, monthRange.end))
+    .slice()
+    .sort((a, b) => (b.earnedOn ?? "").localeCompare(a.earnedOn ?? ""));
+
+  const monthSip = sipEntries
     .filter((r) => inDateRange(r.earnedOn, monthRange.start, monthRange.end))
     .slice()
     .sort((a, b) => (b.earnedOn ?? "").localeCompare(a.earnedOn ?? ""));
@@ -2074,6 +2099,7 @@ function TargetsView({
 
   async function handleSaveInsurance(input: {
     username: string;
+    insuranceAmount?: number;
     companyRevenue: number;
     earnedOn: string;
     note?: string;
@@ -2083,6 +2109,20 @@ function TargetsView({
         ? await onCreateInsurance(input)
         : await onUpdateInsurance({ id: (editingIns as InsuranceRevenue).id, ...input });
     if (ok) setEditingIns(null);
+  }
+
+  async function handleSaveSip(input: {
+    clientName: string;
+    monthlyAmount: number;
+    annualValue: number;
+    revenue: number;
+    earnedOn: string;
+  }) {
+    const ok =
+      editingSip === "new"
+        ? await onCreateSip(input)
+        : await onUpdateSip({ id: (editingSip as SipEntry).id, ...input });
+    if (ok) setEditingSip(null);
   }
 
   const th: React.CSSProperties = {
@@ -2103,6 +2143,10 @@ function TargetsView({
 
   return (
     <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+        <MonthNav month={viewMonth} onChange={onMonthChange} />
+      </div>
+
       <button
         type="button"
         onClick={() => setQuotasOpen((o) => !o)}
@@ -2169,21 +2213,47 @@ function TargetsView({
         </>
       )}
 
-      <FinanceLedger
-        title="AUM Tracking"
-        addLabel="+ Add AUM"
-        kind="aum"
-        amountLabel="AUM amount"
-        entries={finance}
-        viewMonth={viewMonth}
-        allTime
-        employees={employees}
-        nameOf={nameOf}
-        assignEmployee={false}
-        onCreate={onCreateFinance}
-        onUpdate={onUpdateFinance}
-        onDelete={onDeleteFinance}
-      />
+      <button
+        type="button"
+        onClick={() => setAumOpen((o) => !o)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          width: "100%",
+          textAlign: "left",
+          background: "#fff",
+          border: "1px solid #EEF0F3",
+          borderRadius: 12,
+          padding: "12px 14px",
+          cursor: "pointer",
+          marginBottom: aumOpen ? 0 : 16,
+        }}
+      >
+        <span style={{ fontSize: 11, color: "#6B7280", width: 14, flexShrink: 0 }}>{aumOpen ? "▼" : "▶"}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ ...S.sectionLabel, marginBottom: 0 }}>AUM Tracking — {formatMonthLong(viewMonth)}</div>
+          {!aumOpen && (
+            <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>Click to add or review AUM for this month</div>
+          )}
+        </div>
+      </button>
+      {aumOpen && (
+        <FinanceLedger
+          title="AUM entries"
+          addLabel="+ Add AUM"
+          kind="aum"
+          amountLabel="AUM amount"
+          entries={finance}
+          viewMonth={viewMonth}
+          employees={employees}
+          nameOf={nameOf}
+          assignEmployee={false}
+          onCreate={onCreateFinance}
+          onUpdate={onUpdateFinance}
+          onDelete={onDeleteFinance}
+        />
+      )}
 
       <FinanceLedger
         title={`Incentive — ${formatMonthLong(viewMonth)}`}
@@ -2200,13 +2270,44 @@ function TargetsView({
       />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9, flexWrap: "wrap", gap: 8 }}>
-        <div style={{ ...S.sectionLabel, marginBottom: 0 }}>Insurance company revenue — {formatMonthLong(viewMonth)}</div>
-        <button className="primary" onClick={() => setEditingIns("new")}>+ Add insurance revenue</button>
+        <div style={{ ...S.sectionLabel, marginBottom: 0 }}>SIP — {formatMonthLong(viewMonth)}</div>
+        <button className="primary" onClick={() => setEditingSip("new")}>+ Add SIP</button>
+      </div>
+      <div style={S.list}>
+        <div className="dataHead" style={{ ...S.listRow, cursor: "default" }}>
+          <div style={{ ...th, flex: 1 }}>Date</div>
+          <div style={{ ...th, flex: 1.6 }}>Client</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Monthly SIP</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Annual value</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Revenue (6%)</div>
+          <div style={{ width: 66 }} />
+        </div>
+        {monthSip.map((r) => (
+          <div key={r.id} className="row dataRow" style={S.listRow}>
+            <DataCell label="Date" style={{ flex: 1, fontSize: 12, color: "#6B7280", cursor: "pointer" }} onClick={() => setEditingSip(r)}>{r.earnedOn}</DataCell>
+            <DataCell label="Client" className="dc-span" style={{ flex: 1.6, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingSip(r)}>{r.clientName}</DataCell>
+            <DataCell label="Monthly SIP" className="dc-right" style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingSip(r)}>{rupee(r.monthlyAmount)}</DataCell>
+            <DataCell label="Annual value" className="dc-right" style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingSip(r)}>{rupee(r.annualValue)}</DataCell>
+            <DataCell label="Revenue (6%)" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingSip(r)}>{rupee(r.revenue)}</DataCell>
+            <DataCell className="dc-actions" style={{ width: 66, textAlign: "right" }}>
+              <button className="ghost sm" onClick={() => setDeleteSip(r)}>Delete</button>
+            </DataCell>
+          </div>
+        ))}
+        {monthSip.length === 0 && (
+          <div style={S.empty}>No SIP entries this month. Annual value defaults to monthly × 12; revenue is 6% of annual value.</div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9, flexWrap: "wrap", gap: 8, marginTop: 24 }}>
+        <div style={{ ...S.sectionLabel, marginBottom: 0 }}>Insurance — {formatMonthLong(viewMonth)}</div>
+        <button className="primary" onClick={() => setEditingIns("new")}>+ Add insurance</button>
       </div>
       <div style={S.list}>
         <div className="dataHead" style={{ ...S.listRow, cursor: "default" }}>
           <div style={{ ...th, flex: 1 }}>Date</div>
           <div style={{ ...th, flex: 1.4 }}>Employee</div>
+          <div style={{ ...th, flex: 1, textAlign: "right" }}>Insurance ₹</div>
           <div style={{ ...th, flex: 1, textAlign: "right" }}>Company ₹</div>
           <div style={{ ...th, flex: 1, textAlign: "right" }}>Wealth Manager (50%)</div>
           <div style={{ ...th, flex: 1.4 }}>Note</div>
@@ -2216,6 +2317,7 @@ function TargetsView({
           <div key={r.id} className="row dataRow" style={S.listRow}>
             <DataCell label="Date" style={{ flex: 1, fontSize: 12, color: "#6B7280", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.earnedOn}</DataCell>
             <DataCell label="Employee" style={{ flex: 1.4, fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{nameOf(r.username)}</DataCell>
+            <DataCell label="Insurance ₹" className="dc-right" style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.insuranceAmount != null ? rupee(r.insuranceAmount) : "—"}</DataCell>
             <DataCell label="Company ₹" className="dc-right" style={{ flex: 1, textAlign: "right", fontWeight: 600, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(r.companyRevenue)}</DataCell>
             <DataCell label="Wealth Manager (50%)" className="dc-right" style={{ flex: 1, textAlign: "right", cursor: "pointer" }} onClick={() => setEditingIns(r)}>{rupee(insuranceSplit(r.companyRevenue ?? 0).wealthManager)}</DataCell>
             <DataCell label="Note" className="dc-span" style={{ flex: 1.4, color: "#374151", fontSize: 12, cursor: "pointer" }} onClick={() => setEditingIns(r)}>{r.note || "—"}</DataCell>
@@ -2225,9 +2327,34 @@ function TargetsView({
           </div>
         ))}
         {monthIns.length === 0 && (
-          <div style={S.empty}>No insurance revenue this month. Add the company amount — the Wealth Manager's 50% is calculated automatically.</div>
+          <div style={S.empty}>No insurance this month. Add the insurance amount and company revenue — the Wealth Manager's 50% is calculated from company ₹.</div>
         )}
       </div>
+
+      {editingSip && (
+        <SipEntryModal
+          entry={editingSip === "new" ? null : editingSip}
+          defaultDate={viewMonth === monthStartOf() ? todayISO() : viewMonth}
+          onClose={() => setEditingSip(null)}
+          onSave={handleSaveSip}
+        />
+      )}
+
+      {deleteSip && (
+        <ConfirmDelete
+          title="Delete this SIP entry?"
+          detail={`${deleteSip.clientName} · ${rupee(deleteSip.monthlyAmount)} / mo · ${deleteSip.earnedOn}`}
+          confirmLabel="Delete entry"
+          busy={deletingSip}
+          onCancel={() => !deletingSip && setDeleteSip(null)}
+          onConfirm={async () => {
+            setDeletingSip(true);
+            await onDeleteSip(deleteSip.id);
+            setDeletingSip(false);
+            setDeleteSip(null);
+          }}
+        />
+      )}
 
       {editingIns && (
         <InsuranceRevenueModal
@@ -2490,9 +2617,10 @@ function InsuranceRevenueModal({
   employees: Staff[];
   defaultDate: string;
   onClose: () => void;
-  onSave: (input: { username: string; companyRevenue: number; earnedOn: string; note?: string }) => Promise<void>;
+  onSave: (input: { username: string; insuranceAmount?: number; companyRevenue: number; earnedOn: string; note?: string }) => Promise<void>;
 }) {
-  const [username, setUsername] = useState(entry?.username ?? employees[0]?.username ?? "");
+  const [username, setUsername] = useState(entry?.username ?? "");
+  const [insuranceAmount, setInsuranceAmount] = useState(entry?.insuranceAmount != null ? String(entry.insuranceAmount) : "");
   const [companyRevenue, setCompanyRevenue] = useState(entry?.companyRevenue != null ? String(entry.companyRevenue) : "");
   const [earnedOn, setEarnedOn] = useState(entry?.earnedOn ?? defaultDate);
   const [note, setNote] = useState(entry?.note ?? "");
@@ -2500,27 +2628,39 @@ function InsuranceRevenueModal({
   const [saving, setSaving] = useState(false);
 
   async function submit() {
-    if (!username) { setFormError("Pick the Wealth Manager this revenue belongs to."); return; }
+    if (!username) { setFormError("Pick who this insurance belongs to."); return; }
+    const cover = insuranceAmount.trim() ? Number(insuranceAmount) : 0;
+    if (insuranceAmount.trim() && (!Number.isFinite(cover) || cover < 0)) { setFormError("Enter the insurance amount in ₹."); return; }
     const amount = Number(companyRevenue);
     if (!Number.isFinite(amount) || amount <= 0) { setFormError("Enter the company revenue amount in ₹."); return; }
     if (!earnedOn) { setFormError("Pick the date this revenue was earned."); return; }
     setFormError(null);
     setSaving(true);
-    await onSave({ username, companyRevenue: Math.round(amount), earnedOn, note: note.trim() || undefined });
+    await onSave({
+      username,
+      insuranceAmount: insuranceAmount.trim() ? Math.round(cover) : undefined,
+      companyRevenue: Math.round(amount),
+      earnedOn,
+      note: note.trim() || undefined,
+    });
     setSaving(false);
   }
 
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={(e) => e.stopPropagation()}>
-        <div style={S.drawerName}>{entry ? "Edit insurance revenue" : "Add insurance revenue"}</div>
-        <div style={S.hint}>This is what the company earned. The Wealth Manager's incentive is 50% of this amount.</div>
+        <div style={S.drawerName}>{entry ? "Edit insurance" : "Add insurance"}</div>
+        <div style={S.hint}>Insurance amount is the policy cover. Company revenue is what the firm earned; incentive is 50% of company revenue. The list includes every staff profile, including admin.</div>
         <Field label="Employee" required>
           <select className="sel" value={username} onChange={(e) => setUsername(e.target.value)} style={{ width: "100%" }}>
+            <option value="">— Select employee —</option>
             {employees.map((e) => (
-              <option key={e.username} value={e.username}>{e.displayName} ({roleLabel(e.role)})</option>
+              <option key={e.username} value={e.username}>{personListName(e.displayName)} ({roleLabel(e.role)})</option>
             ))}
           </select>
+        </Field>
+        <Field label="Insurance amount (₹)">
+          <input className="ninput" inputMode="numeric" placeholder="e.g. 1000000" value={insuranceAmount} onChange={(e) => setInsuranceAmount(e.target.value)} />
         </Field>
         <Field label="Company revenue (₹)" required>
           <input className="ninput" inputMode="numeric" placeholder="e.g. 20000" value={companyRevenue} onChange={(e) => setCompanyRevenue(e.target.value)} />
@@ -2530,6 +2670,90 @@ function InsuranceRevenueModal({
         </Field>
         <Field label="Note">
           <input className="ninput" placeholder="Policy / client (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+        {formError && <div style={S.formError}>{formError}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button className="primary" onClick={submit} disabled={saving} style={{ flex: 1, opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button className="ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SipEntryModal({
+  entry,
+  defaultDate,
+  onClose,
+  onSave,
+}: {
+  entry: SipEntry | null;
+  defaultDate: string;
+  onClose: () => void;
+  onSave: (input: {
+    clientName: string;
+    monthlyAmount: number;
+    annualValue: number;
+    revenue: number;
+    earnedOn: string;
+  }) => Promise<void>;
+}) {
+  const [clientName, setClientName] = useState(entry?.clientName ?? "");
+  const [monthly, setMonthly] = useState(entry?.monthlyAmount != null ? String(entry.monthlyAmount) : "");
+  const [annual, setAnnual] = useState(entry?.annualValue != null ? String(entry.annualValue) : "");
+  const [earnedOn, setEarnedOn] = useState(entry?.earnedOn ?? defaultDate);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const annualN = Number(annual) || 0;
+  const revenue = sipRevenueFromAnnual(annualN);
+
+  function onMonthly(v: string) {
+    setMonthly(v);
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) setAnnual(String(sipAnnualFromMonthly(n)));
+  }
+
+  async function submit() {
+    const name = clientName.trim();
+    if (!name) { setFormError("Client name is required."); return; }
+    const m = Number(monthly);
+    if (!Number.isFinite(m) || m <= 0) { setFormError("Enter the monthly SIP amount in ₹."); return; }
+    const a = Number(annual);
+    if (!Number.isFinite(a) || a <= 0) { setFormError("Enter the annual value in ₹."); return; }
+    if (!earnedOn) { setFormError("Pick the date."); return; }
+    setFormError(null);
+    setSaving(true);
+    await onSave({
+      clientName: name,
+      monthlyAmount: Math.round(m),
+      annualValue: Math.round(a),
+      revenue: sipRevenueFromAnnual(Math.round(a)),
+      earnedOn,
+    });
+    setSaving(false);
+  }
+
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={S.drawerName}>{entry ? "Edit SIP" : "Add SIP"}</div>
+        <div style={S.hint}>Annual value fills as monthly × 12 (you can change it). Revenue is 6% of annual value.</div>
+        <Field label="Client name" required>
+          <input className="ninput" placeholder="e.g. Rohan Mehta" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+        </Field>
+        <Field label="SIP monthly amount (₹)" required>
+          <input className="ninput" inputMode="numeric" placeholder="e.g. 5000" value={monthly} onChange={(e) => onMonthly(e.target.value)} />
+        </Field>
+        <Field label="Annual value (₹)" required>
+          <input className="ninput" inputMode="numeric" placeholder="e.g. 60000" value={annual} onChange={(e) => setAnnual(e.target.value)} />
+        </Field>
+        <Field label="Revenue (annual × 6%)">
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{rupee(revenue)}</div>
+        </Field>
+        <Field label="Date" required>
+          <input type="date" className="ninput" value={earnedOn} onChange={(e) => setEarnedOn(e.target.value)} />
         </Field>
         {formError && <div style={S.formError}>{formError}</div>}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>

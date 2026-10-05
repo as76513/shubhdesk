@@ -43,6 +43,16 @@ export const TRADING_PLATFORM_FEE = 0.2;
 export const ADVISOR_SHARE_OF_COMPANY = 0.3;
 export const ADVISOR_OPENED_ELSEWHERE_CUT = 0.5;
 export const INSURANCE_WEALTH_MANAGER_SHARE = 0.5;
+/** Company SIP revenue = annual SIP value × this rate. */
+export const SIP_REVENUE_RATE = 0.06;
+
+export function sipAnnualFromMonthly(monthly: number): number {
+  return Math.round(monthly * 12);
+}
+
+export function sipRevenueFromAnnual(annual: number): number {
+  return Math.round(annual * SIP_REVENUE_RATE);
+}
 /** Stored on Trade.accountOpenedBy when the advisor opened the account themselves. */
 export const ACCOUNT_OPENED_OWN = "OWN";
 
